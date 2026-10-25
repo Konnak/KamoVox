@@ -34,7 +34,7 @@ A versão atual é a **0.1.1**, para Windows 10 e 11, 64 bits.
 | O programa | [`KamoVox_0.1.1_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.1_x64-setup.exe) | Todo mundo. É este o download. |
 | Pacotes de voz | [release `voices`](https://github.com/Konnak/KamoVox/releases/tag/voices) | Só o próprio KamoVox. Não baixe na mão. |
 
-O instalador tem cerca de 9 MB. Se a página de download mostrar vários `.zip` de dezenas ou centenas de MB, você está na release errada. Volte para a [última versão](https://github.com/Konnak/KamoVox/releases/latest).
+O instalador tem cerca de 160 MB, porque algumas vozes já vão dentro dele. As outras são baixadas dentro do programa. Se a página mostrar vários `.zip` soltos, você está na release errada. Volte para a [última versão](https://github.com/Konnak/KamoVox/releases/latest).
 
 ## Por que o Windows avisa
 
@@ -47,7 +47,7 @@ Para abrir:
 
 O Windows pede permissão de administrador **uma vez**. Essa permissão instala o filtro de áudio no microfone, para o Discord e os outros programas ouvirem a voz alterada. O KamoVox não fica escondido: ao fechar a janela, ele continua na bandeja, ao lado do relógio, e pode ser aberto de novo por ali.
 
-Na análise do instalador `0.1.0` no [VirusTotal](https://www.virustotal.com/gui/file/6cbf82c7e517863b5ed4bac7f629da9b88db52d94465abf7dde3cbc40aeeb975), **2 de 69** motores marcaram o arquivo: DeepInstinct e SecureAge. Os dois usam aprendizado de máquina e costumam marcar instalador novo, sem assinatura. A maioria dos motores dessa análise não marcou. O aviso azul do Windows continua até o programa ser assinado. Não existe, hoje, um certificado grátis que apague essa tela para todo mundo.
+Na análise do instalador da versão 0.1.0 no [VirusTotal](https://www.virustotal.com/gui/file/6cbf82c7e517863b5ed4bac7f629da9b88db52d94465abf7dde3cbc40aeeb975), **2 de 69** motores marcaram o arquivo: DeepInstinct e SecureAge. Os dois usam aprendizado de máquina e costumam marcar instalador novo, sem assinatura. A maioria dos motores dessa análise não marcou. A versão 0.1.1 é outro arquivo, então esse número pode mudar. O aviso azul do Windows continua até o programa ser assinado. Não existe, hoje, um certificado grátis que apague essa tela para todo mundo.
 
 ## O que o KamoVox faz
 
