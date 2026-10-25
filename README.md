@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.2_x64-setup.exe"><img src="https://img.shields.io/badge/Baixar-Windows%20x64-0A84FF?style=for-the-badge" alt="Baixar o instalador para Windows" /></a>
+  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.3_x64-setup.exe"><img src="https://img.shields.io/badge/Baixar-Windows%20x64-0A84FF?style=for-the-badge" alt="Baixar o instalador para Windows" /></a>
   &nbsp;
   <img src="https://img.shields.io/github/v/release/Konnak/KamoVox?style=for-the-badge&color=64D2FF&label=vers%C3%A3o" alt="Versão atual" />
   &nbsp;
@@ -22,16 +22,16 @@
 </p>
 
 > [!IMPORTANT]
-> Baixe **somente** o instalador `KamoVox_0.1.2_x64-setup.exe`.
+> Baixe **somente** o instalador `KamoVox_0.1.3_x64-setup.exe`.
 > Os arquivos `.zip` não são o programa. São pacotes de voz que o KamoVox baixa sozinho, quando você escolhe uma voz. Eles ficam numa [release separada](https://github.com/Konnak/KamoVox/releases/tag/voices), de propósito, para não se misturar com o instalador.
 
 ## Baixar
 
-A versão atual é a **0.1.2**, para Windows 10 e 11, 64 bits.
+A versão atual é a **0.1.3**, para Windows 10 e 11, 64 bits.
 
 | O que é | Arquivo | Para quem |
 |---|---|---|
-| O programa | [`KamoVox_0.1.2_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.2_x64-setup.exe) | Todo mundo. É este o download. |
+| O programa | [`KamoVox_0.1.3_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.3_x64-setup.exe) | Todo mundo. É este o download. |
 | Pacotes de voz | [release `voices`](https://github.com/Konnak/KamoVox/releases/tag/voices) | Só o próprio KamoVox. Não baixe na mão. |
 
 O instalador tem cerca de 160 MB, porque algumas vozes já vão dentro dele. As outras são baixadas dentro do programa. Se a página mostrar vários `.zip` soltos, você está na release errada. Volte para a [última versão](https://github.com/Konnak/KamoVox/releases/latest).
@@ -47,7 +47,7 @@ Para abrir:
 
 O Windows pede permissão de administrador **uma vez**. Essa permissão instala o filtro de áudio no microfone, para o Discord e os outros programas ouvirem a voz alterada. O KamoVox não fica escondido: ao fechar a janela, ele continua na bandeja, ao lado do relógio, e pode ser aberto de novo por ali.
 
-Na análise do instalador da versão 0.1.0 no [VirusTotal](https://www.virustotal.com/gui/file/6cbf82c7e517863b5ed4bac7f629da9b88db52d94465abf7dde3cbc40aeeb975), **2 de 69** motores marcaram o arquivo: DeepInstinct e SecureAge. Os dois usam aprendizado de máquina e costumam marcar instalador novo, sem assinatura. A maioria dos motores dessa análise não marcou. A versão 0.1.2 é outro arquivo, então esse número pode mudar. O aviso azul do Windows continua até o programa ser assinado. Não existe, hoje, um certificado grátis que apague essa tela para todo mundo.
+Na análise do instalador da versão 0.1.0 no [VirusTotal](https://www.virustotal.com/gui/file/6cbf82c7e517863b5ed4bac7f629da9b88db52d94465abf7dde3cbc40aeeb975), **2 de 69** motores marcaram o arquivo: DeepInstinct e SecureAge. Os dois usam aprendizado de máquina e costumam marcar instalador novo, sem assinatura. A maioria dos motores dessa análise não marcou. A versão 0.1.3 é outro arquivo, então esse número pode mudar. O aviso azul do Windows continua até o programa ser assinado. Não existe, hoje, um certificado grátis que apague essa tela para todo mundo.
 
 ## O que o KamoVox faz
 
@@ -63,7 +63,7 @@ Na análise do instalador da versão 0.1.0 no [VirusTotal](https://www.virustota
 
 ## Instalar
 
-1. Baixe [`KamoVox_0.1.2_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.2_x64-setup.exe).
+1. Baixe [`KamoVox_0.1.3_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.3_x64-setup.exe).
 2. Se o Windows mostrar a tela azul, use **Mais informações** e **Executar assim mesmo**.
 3. Conclua a instalação. Aceite o pedido de administrador quando ele aparecer.
 4. Abra o KamoVox, escolha o microfone e ligue o uso nos outros programas.
