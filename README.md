@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Tauri_2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
   <img src="https://img.shields.io/badge/Windows_10_/_11-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 e 11" />
   <img src="https://img.shields.io/badge/gratuito-30d158?style=flat-square" alt="Gratuito" />
-  <img src="https://img.shields.io/github/v/release/Konnak/KamoVox?style=flat-square&label=versão" alt="Versão" />
+  <img src="https://img.shields.io/badge/v0.1.6-555?style=flat-square" alt="v0.1.6" />
 </p>
 
 <p align="center">
