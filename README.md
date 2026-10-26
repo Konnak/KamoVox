@@ -1,90 +1,113 @@
 <p align="center">
-  <img src="logo.png" width="104" alt="Logotipo do KamoVox" />
+  <img src="logo.png" width="120" alt="KamoVox" />
 </p>
 
 <h1 align="center">KamoVox</h1>
 
 <p align="center">
-  Trocador de voz para Windows.<br />
-  Você fala no microfone. A voz que escolheu sai no Discord, no jogo, na call.
+  Trocador de voz em tempo real para Windows, com o motor de áudio escrito em <b>Rust</b>.<br />
+  Vozes prontas, voz de inteligência artificial, efeitos e microfone virtual para Discord, jogos e calls.<br />
+  Grátis. Sem conta. Sem mensalidade. A sua voz não sai do seu PC.
 </p>
 
 <p align="center">
-  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.6_x64-setup.exe"><img src="https://img.shields.io/badge/Baixar-Windows%2010%20%2F%2011-0A84FF?style=for-the-badge" alt="Baixar o instalador para Windows" /></a>
+  <img src="https://img.shields.io/badge/motor-Rust-dea584?style=flat-square&logo=rust&logoColor=white" alt="Motor em Rust" />
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 e 11" />
+  <img src="https://img.shields.io/badge/preço-grátis-30d158?style=flat-square" alt="Grátis" />
+  <img src="https://img.shields.io/badge/áudio-tempo%20real-0A84FF?style=flat-square" alt="Tempo real" />
 </p>
 
 <p align="center">
-  <img src="docs/vozes.png" width="920" alt="Tela de vozes prontas do KamoVox" />
+  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.6_x64-setup.exe"><img src="https://img.shields.io/badge/Baixar%20para%20Windows-0A84FF?style=for-the-badge" alt="Baixar para Windows" /></a>
 </p>
 
 <p align="center">
-  Feito por <a href="https://github.com/Konnak">Konnak</a> · sem mensalidade · sem criar conta
+  <img src="docs/hero.png" width="980" alt="Janela do KamoVox" />
 </p>
-
-O botão azul da barra esquerda liga o trocador. Enquanto ele estiver aceso, o que os outros ouvem não é a sua voz de verdade — é a voz do programa. Fecha a janela e o camaleão continua na bandeja, ao lado do relógio.
-
-## Vozes prontas
-
-Toque numa carta para ativar. Toque de novo para voltar ao natural. As categorias separam gente, criatura, máquina, rádio e ambiente. Se não quiser ficar girando slider, **Personagens** já traz combinações prontas (vilão, narrador, criança, e por aí).
-
-Embaixo da lista:
-
-- **Tom** — a voz fica mais grossa ou mais fina
-- **Entonação** — muda o “corpo” da garganta, sem alterar a nota
-- **Textura** — ar na voz, rouquidão, vibrato
-
-O modo **Combinar** mistura duas vozes prontas ao mesmo tempo.
-
-## Voz IA
 
 <p align="center">
-  <img src="docs/voz-ia.png" width="920" alt="Biblioteca de vozes de inteligência artificial" />
+  <a href="#funções">Funções</a> ·
+  <a href="#desempenho">Desempenho</a> ·
+  <a href="#baixar">Baixar</a> ·
+  <a href="https://github.com/Konnak">Konnak</a>
 </p>
 
-Aqui a conversão é outra. A sua fala vira a voz de um modelo, não um efeito em cima do microfone. As vozes baixam **dentro do programa**, quando você pede. Não precisa caçar `.zip` nesta página.
+<table>
+  <tr>
+    <td valign="top" width="25%">
+      <h3>Tempo real</h3>
+      Você fala, o outro lado já ouve a voz escolhida. Nas vozes prontas o atraso fica baixo — dá para conversar e jogar sem aquela defasagem de “rádio pirata”.
+    </td>
+    <td valign="top" width="25%">
+      <h3>Motor em Rust</h3>
+      O áudio não passa por nuvem nem por um script no navegador. Captura, DSP e saída rodam nativos no Windows, em Rust. A placa de vídeo entra só na voz IA, quando você liga.
+    </td>
+    <td valign="top" width="25%">
+      <h3>Grátis de verdade</h3>
+      Sem cadastro, sem plano, sem “3 vozes no gratuito”. O programa inteiro é seu. Se quiser ajudar, tem um Pix dentro do app. Não é obrigatório.
+    </td>
+    <td valign="top" width="25%">
+      <h3>Discord e jogos</h3>
+      O KamoVox instala um microfone no Windows. É esse microfone que o Discord e o jogo têm que ouvir. Sem isso, a call continua com a sua voz de verdade.
+    </td>
+  </tr>
+</table>
 
-Cada carta tem **Calibrar**: o KamoVox ouve o microfone que já está ligado, mede o tom da sua voz e acerta o deslocamento. Homem numa voz aguda, mulher numa voz grave — isso deixa de ser chute.
+## Funções
 
-Dá para importar um modelo RVC (`.pth`) se você tiver o seu. Placa de vídeo ajuda; se não tiver, o programa usa o processador e avisa o atraso.
+Os prints abaixo são a janela do programa, sem recorte de marketing.
 
-Com a voz IA ligada, ela substitui as vozes prontas. Efeito, textura e o microfone continuam valendo.
-
-## Efeitos
+<table>
+  <tr>
+    <td valign="top" width="50%">
+      <img src="docs/vozes.png" alt="Vozes prontas, tom e personagens" />
+      <p><em>Vozes prontas, tom, entonação e personagens.</em></p>
+      <h3>Vozes prontas</h3>
+      Clique para ligar, clique de novo para voltar ao natural. Gente, criatura, máquina, rádio, ambiente. Se não quiser girar slider, <strong>Personagens</strong> já traz combinações prontas.
+      <p><strong>Tom</strong> muda a nota. <strong>Entonação</strong> muda o corpo da garganta, sem alterar o tom. <strong>Textura</strong> põe ar, rouquidão, vibrato. O modo Combinar mistura duas vozes ao mesmo tempo.</p>
+    </td>
+    <td valign="top" width="50%">
+      <img src="docs/voz-ia.png" alt="Biblioteca de vozes de inteligência artificial" />
+      <p><em>Voz IA: modelos no seu PC, com calibrar em cada carta.</em></p>
+      <h3>Voz IA</h3>
+      Aqui a conversão é outra: a sua fala vira a voz de um modelo. As vozes baixam <strong>dentro do programa</strong>. Não precisa caçar <code>.zip</code> nesta página.
+      <p>Cada carta tem <strong>Calibrar</strong>: o KamoVox ouve o microfone que já está ligado e acerta o deslocamento de tom. Dá para importar um modelo RVC (<code>.pth</code>) se você tiver o seu.</p>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" width="50%">
+      <img src="docs/efeitos.png" alt="Efeitos, vocoder e mistura" />
+      <p><em>Caverna, eco, vocoder — por cima da voz, não no lugar dela.</em></p>
+      <h3>Efeitos</h3>
+      Caverna, salão, eco, coro, vocoder. O vocoder usa o ritmo da sua fala para “tocar” um instrumento. Se quiser, mistura a voz original junto.
+    </td>
+    <td valign="top" width="50%">
+      <img src="docs/ajustes.png" alt="Microfone, calibração e uso em outros programas" />
+      <p><em>Microfone, calibração e a voz alterada nos outros programas.</em></p>
+      <h3>No Discord e nos jogos</h3>
+      Calibração automática no próprio microfone do programa. Ouvir no fone antes de soltar na call. Push-to-talk. Abrir junto com o Windows. O cartão da barra esquerda mostra se está saindo voz e quanto de atraso tem.
+    </td>
+  </tr>
+</table>
 
 <p align="center">
-  <img src="docs/efeitos.png" width="920" alt="Página de efeitos, vocoder e mistura" />
+  <img src="docs/atalhos.png" width="920" alt="Atalhos de teclado" />
 </p>
 
-Caverna, salão, eco, coro, vocoder. Entram por cima da voz, não no lugar dela. O vocoder usa o ritmo da sua fala para “tocar” um instrumento — sintetizador, sino, órgão, vento. Se quiser, mistura a voz original junto, para não ficar 100% personagem.
+<p align="center"><em>Uma tecla para ligar o modificador, trocar de voz ou mandar música no microfone.</em></p>
 
-## No Discord e nos jogos
+Letra precisa de Ctrl, Alt ou Shift. F1 a F12 podem ir sozinhas. Em **Música**, o áudio vai para o microfone — não só para o seu fone. **Perfis** guardam a combinação inteira para voltar nela depois.
 
-<p align="center">
-  <img src="docs/ajustes.png" width="920" alt="Ajustes de microfone e uso em outros programas" />
-</p>
+## Desempenho
 
-O KamoVox instala um microfone no Windows. É **esse** microfone que o Discord, o jogo ou a call têm que usar. Sem essa etapa, o outro lado continua ouvindo a sua voz normal.
+O KamoVox não manda a sua voz para um servidor. O caminho é local: microfone → motor em Rust → microfone virtual do Windows.
 
-Na mesma tela:
+- **Vozes prontas.** DSP nativo (`kamovox-dsp`), captura com cpal. O cartão da barra mostra **Atraso: Baixo**. Dá para usar em call e em jogo.
+- **A 48 kHz** quando o dispositivo aguenta. O cabeçalho de Ajustes mostra a taxa em que o áudio está rodando.
+- **Voz IA.** Roda no seu PC. Se tiver placa de vídeo, usa ela; se não tiver, usa o processador e o programa mostra o atraso. Presets de desempenho, equilibrado e qualidade — você escolhe entre naturalidade e latência.
+- **Rust, não um site embrulhado.** A interface é um app Windows (Tauri). O que importa para o som — captura, troca de voz, efeitos, saída — está em Rust. Não tem conta na nuvem para “ativar” a voz.
 
-- **Calibração automática** — o programa escuta você e acerta o tom
-- **Ouvir no fone** — testa o resultado antes de soltar na call. Use fone, senão vira eco
-- **Push-to-talk** — segura a tecla para falar, solta para silenciar (ou o contrário)
-- Abrir junto com o Windows, tema claro / escuro / sistema
-
-O áudio precisa estar ligado. O cartão **Trocador de voz**, embaixo da barra, mostra se está saindo voz e quanto de atraso tem.
-
-## Atalhos, música, perfis
-
-<p align="center">
-  <img src="docs/atalhos.png" width="920" alt="Atalhos de teclado do KamoVox" />
-</p>
-
-Uma tecla para ligar o modificador, trocar de voz, mandar um trecho de música no microfone. Letra precisa de Ctrl, Alt ou Shift. F1 a F12 podem ir sozinhas.
-
-Em **Música**, você coloca um áudio e dispara com o atalho — o som vai para o microfone, não só para o seu fone. **Perfis** guardam a combinação inteira (voz, efeito, microfone) para voltar nela depois.
-
-O rodapé tem a versão e o botão de atualizar. Se existir versão nova, o KamoVox pergunta antes de instalar. Não instala sozinho.
+O botão azul da barra esquerda liga o trocador. Fecha a janela e o camaleão continua na bandeja, ao lado do relógio. Para sair de verdade, use o menu de lá.
 
 ## Baixar
 
@@ -94,27 +117,17 @@ O arquivo certo é só este:
 
 Alguns pacotes de voz já vêm no instalador. O resto o programa baixa quando você escolhe a voz.
 
-Os `.zip` que aparecem no GitHub **não são o programa**. São os pacotes. Ficam numa [release separada](https://github.com/Konnak/KamoVox/releases/tag/voices), de propósito, para não se misturar com o instalador. Não baixe eles na mão.
+Os `.zip` que aparecem no GitHub **não são o programa**. São os pacotes. Ficam numa [release separada](https://github.com/Konnak/KamoVox/releases/tag/voices), de propósito. Não baixe eles na mão.
 
-### A tela azul do Windows
+O instalador ainda não tem assinatura digital. O Windows mostra “O Windows protegeu o seu PC”. Clique em **Mais informações**, depois **Executar assim mesmo**. Na primeira abertura pede administrador **uma vez**: é para instalar o microfone virtual.
 
-O instalador ainda não tem assinatura digital. O Windows mostra “O Windows protegeu o seu PC”, com publicador desconhecido. Isso é o SmartScreen, não um antivírus dizendo que achou vírus.
-
-Clique em **Mais informações**, depois em **Executar assim mesmo**.
-
-Na primeira abertura o Windows pede administrador **uma vez**: é para instalar o microfone virtual. Fechar a janela não desliga o KamoVox — ele fica na bandeja. Para sair de verdade, use o menu de lá.
-
-## Dois minutos para usar
-
-1. Instale o `.exe`. Se aparecer a tela azul, **Mais informações** → **Executar assim mesmo**.
+1. Instale o `.exe`.
 2. Abra o KamoVox, escolha o microfone, ligue **Voz alterada nos programas**.
-3. No Discord (ou no jogo), selecione o microfone do KamoVox.
+3. No Discord ou no jogo, selecione o microfone do KamoVox.
 4. Ligue o botão de energia na barra esquerda e escolha uma voz.
 
-Internet só entra na história para atualizar e para baixar voz nova.
+Internet só entra na história para atualizar e para baixar voz nova. No rodapé, **Verificar atualizações** pergunta antes de instalar.
 
 ---
 
-KamoVox é um projeto pessoal. O camaleão da barra não cobra café, mas o botão **Apoie o projeto**, dentro do programa, existe se alguém quiser.
-
-[github.com/Konnak](https://github.com/Konnak)
+KamoVox é um projeto pessoal do [Konnak](https://github.com/Konnak). O camaleão da barra não cobra café. Se alguém quiser, o botão **Apoie o projeto** está dentro do programa.
