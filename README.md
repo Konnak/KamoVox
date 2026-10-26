@@ -5,7 +5,10 @@
 <h1 align="center">KamoVox</h1>
 
 <p align="center">
-  Trocador de voz em tempo real para Windows. Motor em Rust, interface Tauri, inferência ONNX local.
+  Modificador de voz em tempo real para Windows.<br />
+  Vozes clássicas e conversão por IA, com processamento local: o áudio não sai do PC.<br />
+  Motor em Rust, interface Tauri, inferência ONNX na placa de vídeo ou no processador.<br />
+  Baixa latência nas vozes clássicas. Leve o bastante para ficar aberto junto com o jogo e o Discord.
 </p>
 
 <p align="center">
@@ -17,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.6_x64-setup.exe"><img src="https://img.shields.io/badge/Windows_x64-0A84FF?style=for-the-badge&logo=windows&logoColor=white" alt="Baixar o instalador Windows x64" /></a>
+  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.6_x64-setup.exe"><img src="https://img.shields.io/badge/Download_%C2%B7_Windows_x64-0A84FF?style=for-the-badge&logo=windows&logoColor=white" alt="Download · Windows x64" /></a>
 </p>
 
 <p align="center">
