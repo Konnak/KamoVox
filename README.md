@@ -15,11 +15,11 @@
   <img src="https://img.shields.io/badge/Tauri_2-24C8DB?style=flat-square&logo=tauri&logoColor=white" alt="Tauri 2" />
   <img src="https://img.shields.io/badge/Windows_10_/_11-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 e 11" />
   <img src="https://img.shields.io/badge/gratuito-30d158?style=flat-square" alt="Gratuito" />
-  <img src="https://img.shields.io/badge/v0.1.9-555?style=flat-square" alt="v0.1.9" />
+  <img src="https://img.shields.io/badge/v0.1.10-555?style=flat-square" alt="v0.1.10" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.9_x64-setup.exe"><img src="https://img.shields.io/badge/Download_%C2%B7_Windows_x64-0A84FF?style=for-the-badge&logo=windows&logoColor=white" alt="Download · Windows x64" /></a>
+  <a href="https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.10_x64-setup.exe"><img src="https://img.shields.io/badge/Download_%C2%B7_Windows_x64-0A84FF?style=for-the-badge&logo=windows&logoColor=white" alt="Download · Windows x64" /></a>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 <p align="center">
   Vozes clássicas, categorias, tom e entonação.<br />
-  Versão 0.1.9
+  Versão 0.1.10
 </p>
 
 <p align="center">
@@ -177,7 +177,7 @@ O caminho do sinal é local: microfone → fila → DSP clássico ou ONNX → AP
 
 Windows 10 ou 11, x64.
 
-1. Baixe [`KamoVox_0.1.9_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.9_x64-setup.exe).
+1. Baixe [`KamoVox_0.1.10_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.10_x64-setup.exe).
 2. Se o SmartScreen abrir, use **Mais informações** e **Executar assim mesmo**. O arquivo não tem assinatura Authenticode.
 3. Conclua o instalador. O pedido de administrador registra o APO.
 4. Em Ajustes, escolha o microfone, instale o endpoint e ligue **Voz alterada nos programas**.
@@ -190,7 +190,7 @@ Alguns modelos de voz IA já vão no instalador (~160 MB). Os outros saem da rel
 
 | Build | Arquivo |
 | --- | --- |
-| Windows x64 | [`KamoVox_0.1.9_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.9_x64-setup.exe) |
+| Windows x64 | [`KamoVox_0.1.10_x64-setup.exe`](https://github.com/Konnak/KamoVox/releases/latest/download/KamoVox_0.1.10_x64-setup.exe) |
 
 O instalador é o único arquivo para instalar o programa. Notas da versão ficam na [release](https://github.com/Konnak/KamoVox/releases/latest).
 
