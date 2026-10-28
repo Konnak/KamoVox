@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <title>KamoVox</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="splash" id="splash" data-tauri-drag-region>
+      <div class="splash-glow"></div>
+      <div class="splash-eq" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="splash-logo">
+        <span class="wave w1"></span>
+        <span class="wave w2"></span>
+        <span class="wave w3"></span>
+        <span class="ring"></span>
+        <img src="/logo.png" alt="" draggable="false" />
+      </div>
+      <div class="splash-name">Kamo<b>Vox</b></div>
+      <div class="splash-by">Desenvolvido por <b>Konnak</b></div>
+      <div class="splash-bar"><div id="splash-fill"></div></div>
+      <div class="splash-status" id="splash-status">Iniciando…</div>
+    </div>
+
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand" data-tauri-drag-region>
+          <img class="logo" src="/logo.png" alt="" draggable="false" />
+          <span data-tauri-drag-region>KamoVox</span>
+        </div>
+
+        <nav id="nav"><div class="nav-pill" id="nav-pill"></div></nav>
+
+        <button type="button" class="support-btn" id="support-open">
+          <span class="support-plate" aria-hidden="true"></span>
+          <span class="support-cham">
+            <video class="support-jar" id="support-mascot" src="/chameleon-btn.webm?v=4" muted playsinline preload="auto"></video>
+          </span>
+          <span class="support-label">Apoie o projeto</span>
+        </button>
+
+        <div class="power-card" id="power-card">
+          <div class="power-row">
+            <div class="power-title">Trocador de voz</div>
+            <div class="power-actions">
+              <button type="button" class="power-sub" id="power-sub" hidden><i></i><span></span></button>
+              <button type="button" class="power-btn hear" id="hear" aria-pressed="false" aria-label="Ouvir a própria voz" title="Ouvir a própria voz">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="2"/><rect x="16" y="14" width="4.5" height="6.5" rx="2"/></svg>
+              </button>
+              <button type="button" class="ptt-mic" id="ptt-mic" title="Microfone aberto" aria-pressed="false" aria-label="Mutar o microfone">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></svg>
+              </button>
+              <button type="button" class="power-btn on" id="power" aria-pressed="true" aria-label="Ligar ou desligar o trocador de voz">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v8"/><path d="M7 6.3a7.5 7.5 0 1 0 10 0"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="power-now" id="power-now" title="Abrir a voz em uso">
+            <span class="art" id="power-art"></span>
+            <span class="text"><small id="power-now-hint">Você está falando como</small><b id="power-voice">Voz natural</b></span>
+          </button>
+          <div class="power-stats" id="power-stats"></div>
+          <div class="meters">
+            <div class="meter-line" title="Sua voz original">
+              <svg class="meter-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></svg>
+              <div class="meter"><div id="meter-in"></div></div>
+            </div>
+            <div class="meter-line" title="Voz que os programas ouvem">
+              <svg class="meter-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 11v2"/></svg>
+              <div class="meter"><div id="meter-out"></div></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar" id="topbar" data-tauri-drag-region>
+          <div class="compact-title" id="compact-title" data-tauri-drag-region></div>
+          <div class="window-buttons">
+            <button id="win-min" aria-label="Minimizar para a bandeja" title="Minimizar para a bandeja">
+              <svg viewBox="0 0 12 12"><path d="M2 6h8" /></svg>
+            </button>
+            <button id="win-max" aria-label="Maximizar">
+              <svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" rx="1.5" /></svg>
+            </button>
+            <button id="win-close" class="close" aria-label="Fechar para a bandeja" title="Continua funcionando na bandeja">
+              <svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" /></svg>
+            </button>
+          </div>
+        </header>
+        <main id="content"></main>
+      </section>
+      <footer class="win-footer">
+        <div class="footer-credit" id="credit-link">
+          <span class="credit-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <button type="button" class="credit-open" id="credit-open" aria-label="Abrir o GitHub do Konnak">
+            <span class="credit-kicker">Desenvolvido por</span>
+            <span class="credit-name-wrap">
+              <span id="credit-name">Konnak</span>
+              <span class="credit-line" aria-hidden="true"></span>
+            </span>
+          </button>
+          <button type="button" class="credit-out" id="credit-github" aria-label="GitHub" title="GitHub">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.3-.8-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.8 2.3.6.1-.5.3-.8.5-1-1.8-.2-3.6-.9-3.6-3.9 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.5.8 1.2.8 2.1 0 3-1.9 3.7-3.7 3.9.3.3.6.8.6 1.5v2.2c0 .2.1.5.5.4A8 8 0 0 0 8 0z"/></svg>
+          </button>
+        </div>
+        <button type="button" class="footer-ver" id="app-version" title="Notas da versão">v0.1.16</button>
+        <button type="button" class="footer-update" id="check-update">
+          <svg class="sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-13.7 5.6L4 16"/><path d="M4 20v-4h4"/><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8"/><path d="M20 4v4h-4"/></svg>
+          <span class="update-label">Verificar atualizações</span>
+        </button>
+      </footer>
+    </div>
+
+    <div class="support-backdrop" id="support-backdrop" hidden>
+      <div class="support-card" role="dialog" aria-labelledby="support-title">
+        <div class="support-stage">
+          <div class="support-copy">
+            <img class="support-logo" src="/logo.png" alt="" />
+            <h2 id="support-title">O camaleão <span>trabalha de graça</span></h2>
+            <p id="support-used"></p>
+            <p class="support-body">Este programa <strong>não cobra mensalidade</strong> e não esconde a voz atrás de um cadeado. Se a voz nova te arrancou uma risada, um <strong>Pix de qualquer valor</strong> ajuda a continuar.</p>
+            <p class="support-soft">Um café, um chiclete ou a moeda do sofá. <strong>Sem valor mínimo.</strong></p>
+          </div>
+          <video class="support-peek" id="support-peek" src="/chameleon-ui.webm?v=3" muted playsinline preload="auto"></video>
+        </div>
+        <img class="support-qr" src="/pix-qr.png" alt="QR Code do Pix" width="112" height="112" />
+        <div class="support-key" id="support-key">35b26296-c096-4bf9-b455-7ef0cf6e7f65</div>
+        <div class="support-actions">
+          <button type="button" class="btn block" id="pix-copy">Copiar chave Pix</button>
+          <button type="button" class="btn block plain" id="pix-payload">Copiar Pix copia e cola</button>
+          <button type="button" class="btn block plain" id="support-later">Agora não</button>
+        </div>
+      </div>
+    </div>
+    <div class="confetti-rain" id="confetti-rain" hidden></div>
+
+    <div class="log-backdrop" id="changelog-backdrop" hidden>
+      <div class="log-card" role="dialog" aria-labelledby="log-title">
+        <h2 id="log-title">Notas da versão</h2>
+        <p class="log-ver" id="log-ver">v0.1.16</p>
+        <p class="log-lead" id="log-lead" hidden></p>
+        <ul id="log-notes">
+          <li>CAM++: janela só com fala ativa (VAD) — silêncio não polui o embedding.</li>
+          <li>Abertura híbrida: DSP libera o início; CAM++ confirma ou veta ~0,4 s depois.</li>
+          <li>Slider 0–100% calibrado na gravação (p10); 100% ainda passa a sua voz.</li>
+        </ul>
+        <button type="button" class="btn block" id="changelog-close">Fechar</button>
+      </div>
+    </div>
+    <div class="cal-backdrop" id="cal-backdrop" hidden>
+      <div class="cal-card" role="dialog" aria-labelledby="cal-title">
+        <div class="cal-head">
+          <h2 id="cal-title">Calibração automática</h2>
+          <button type="button" class="cal-x" id="cal-close" aria-label="Fechar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+          </button>
+        </div>
+        <div id="cal-read">
+          <p class="cal-kicker">Leia em voz natural</p>
+          <p class="cal-script">Olá, eu estou calibrando o KamoVox. Vou falar do meu jeito, sem sussurrar e sem gritar, para o programa encontrar o meu tom.</p>
+          <div class="cal-meter" aria-hidden="true" id="cal-meter"></div>
+          <div class="cal-time" id="cal-time">00:00</div>
+          <p class="cal-error" id="cal-error" hidden></p>
+          <div class="cal-actions">
+            <button type="button" class="btn" id="cal-start">Iniciar</button>
+          </div>
+        </div>
+        <div id="cal-result" hidden>
+          <p class="cal-kicker" id="cal-heard"></p>
+          <label class="cal-slider">Entonação <b id="cal-ent-val"></b>
+            <input type="range" class="centered" id="cal-ent" min="-12" max="12" step="0.1" value="0" />
+            <small id="cal-ent-hint"></small>
+          </label>
+          <label class="cal-slider">Tom <b id="cal-tom-val"></b>
+            <input type="range" class="centered" id="cal-tom" min="-16" max="16" step="0.1" value="0" />
+            <small id="cal-tom-hint"></small>
+          </label>
+          <button type="button" class="cal-again" id="cal-again">Não gostou? Gravar novamente</button>
+        </div>
+      </div>
+    </div>
+    <div class="sheet-backdrop" id="sheet-backdrop"></div>
+    <div class="sheet" id="sheet"></div>
+    <div class="popover" id="popover"></div>
+    <div class="toast" id="toast"></div>
+  </body>
+</html>

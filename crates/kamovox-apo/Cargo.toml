@@ -1,0 +1,22 @@
+[package]
+name = "kamovox-apo"
+version = "0.1.0"
+edition = "2021"
+description = "KamoVox audio processing object: routes a Windows microphone through KamoVox"
+
+[lib]
+name = "kamovox_apo"
+crate-type = ["cdylib"]
+
+[dependencies]
+kamovox-link = { path = "../kamovox-link" }
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Apo",
+    "Win32_System_Com",
+] }
+
+[dev-dependencies]
+windows = { version = "0.62", features = ["Win32_System_LibraryLoader"] }

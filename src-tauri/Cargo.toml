@@ -1,0 +1,49 @@
+[package]
+name = "kamovox"
+version = "0.1.22"
+description = "KamoVox voice changer"
+authors = ["KamoVox"]
+edition = "2021"
+
+[lib]
+name = "kamovox_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+base64 = "0.23"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.15"
+ringbuf = "0.4"
+crossbeam-channel = "0.5"
+kamovox-dsp = { path = "../crates/kamovox-dsp" }
+tauri-plugin-dialog = "2"
+ureq = "3"
+sha2 = "0.11.1"
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_Foundation",
+    "Win32_Media",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Input",
+    "Win32_UI_WindowsAndMessaging",
+    "Wdk_Graphics_Direct3D",
+] }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "wav", "ogg", "vorbis", "flac", "isomp4", "aac", "pcm"] }
+kamovox-link = { path = "../crates/kamovox-link" }
+kamovox-ai = { version = "0.1.0", path = "../crates/kamovox-ai" }
+zip = { version = "2", default-features = false, features = ["deflate"] }

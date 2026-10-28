@@ -1,0 +1,1890 @@
+{
+ "version": "v2",
+ "sampleRate": 40000,
+ "f0": false,
+ "embChannels": 768,
+ "upp": 400,
+ "weights": {
+  "enc_p.emb_phone.weight": [
+   192,
+   768
+  ],
+  "enc_p.emb_phone.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.0.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.0.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.0.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.0.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.0.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.0.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.0.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.0.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.0.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.0.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.1.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.1.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.1.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.1.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.1.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.1.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.1.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.1.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.1.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.1.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.2.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.2.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.2.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.2.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.2.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.2.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.2.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.2.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.2.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.2.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.3.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.3.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.3.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.3.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.3.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.3.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.3.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.3.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.3.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.3.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.4.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.4.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.4.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.4.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.4.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.4.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.4.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.4.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.4.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.4.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.5.emb_rel_k": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.5.emb_rel_v": [
+   1,
+   21,
+   96
+  ],
+  "enc_p.encoder.attn_layers.5.conv_q.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.5.conv_q.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.5.conv_k.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.5.conv_k.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.5.conv_v.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.5.conv_v.bias": [
+   192
+  ],
+  "enc_p.encoder.attn_layers.5.conv_o.weight": [
+   192,
+   192,
+   1
+  ],
+  "enc_p.encoder.attn_layers.5.conv_o.bias": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.0.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.0.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.1.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.1.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.2.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.2.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.3.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.3.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.4.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.4.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.5.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_1.5.beta": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.0.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.0.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.0.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.0.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.1.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.1.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.1.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.1.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.2.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.2.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.2.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.2.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.3.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.3.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.3.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.3.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.4.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.4.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.4.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.4.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.ffn_layers.5.conv_1.weight": [
+   768,
+   192,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.5.conv_1.bias": [
+   768
+  ],
+  "enc_p.encoder.ffn_layers.5.conv_2.weight": [
+   192,
+   768,
+   3
+  ],
+  "enc_p.encoder.ffn_layers.5.conv_2.bias": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.0.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.0.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.1.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.1.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.2.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.2.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.3.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.3.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.4.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.4.beta": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.5.gamma": [
+   192
+  ],
+  "enc_p.encoder.norm_layers_2.5.beta": [
+   192
+  ],
+  "enc_p.proj.weight": [
+   384,
+   192,
+   1
+  ],
+  "enc_p.proj.bias": [
+   384
+  ],
+  "flow.flows.0.pre.weight": [
+   192,
+   96,
+   1
+  ],
+  "flow.flows.0.pre.bias": [
+   192
+  ],
+  "flow.flows.0.enc.in_layers.0.bias": [
+   384
+  ],
+  "flow.flows.0.enc.in_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.in_layers.0.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.0.enc.in_layers.1.bias": [
+   384
+  ],
+  "flow.flows.0.enc.in_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.in_layers.1.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.0.enc.in_layers.2.bias": [
+   384
+  ],
+  "flow.flows.0.enc.in_layers.2.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.in_layers.2.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.0.enc.res_skip_layers.0.bias": [
+   384
+  ],
+  "flow.flows.0.enc.res_skip_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.res_skip_layers.0.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.0.enc.res_skip_layers.1.bias": [
+   384
+  ],
+  "flow.flows.0.enc.res_skip_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.res_skip_layers.1.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.0.enc.res_skip_layers.2.bias": [
+   192
+  ],
+  "flow.flows.0.enc.res_skip_layers.2.weight_g": [
+   192,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.res_skip_layers.2.weight_v": [
+   192,
+   192,
+   1
+  ],
+  "flow.flows.0.enc.cond_layer.bias": [
+   1152
+  ],
+  "flow.flows.0.enc.cond_layer.weight_g": [
+   1152,
+   1,
+   1
+  ],
+  "flow.flows.0.enc.cond_layer.weight_v": [
+   1152,
+   256,
+   1
+  ],
+  "flow.flows.0.post.weight": [
+   96,
+   192,
+   1
+  ],
+  "flow.flows.0.post.bias": [
+   96
+  ],
+  "flow.flows.2.pre.weight": [
+   192,
+   96,
+   1
+  ],
+  "flow.flows.2.pre.bias": [
+   192
+  ],
+  "flow.flows.2.enc.in_layers.0.bias": [
+   384
+  ],
+  "flow.flows.2.enc.in_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.in_layers.0.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.2.enc.in_layers.1.bias": [
+   384
+  ],
+  "flow.flows.2.enc.in_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.in_layers.1.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.2.enc.in_layers.2.bias": [
+   384
+  ],
+  "flow.flows.2.enc.in_layers.2.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.in_layers.2.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.2.enc.res_skip_layers.0.bias": [
+   384
+  ],
+  "flow.flows.2.enc.res_skip_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.res_skip_layers.0.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.2.enc.res_skip_layers.1.bias": [
+   384
+  ],
+  "flow.flows.2.enc.res_skip_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.res_skip_layers.1.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.2.enc.res_skip_layers.2.bias": [
+   192
+  ],
+  "flow.flows.2.enc.res_skip_layers.2.weight_g": [
+   192,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.res_skip_layers.2.weight_v": [
+   192,
+   192,
+   1
+  ],
+  "flow.flows.2.enc.cond_layer.bias": [
+   1152
+  ],
+  "flow.flows.2.enc.cond_layer.weight_g": [
+   1152,
+   1,
+   1
+  ],
+  "flow.flows.2.enc.cond_layer.weight_v": [
+   1152,
+   256,
+   1
+  ],
+  "flow.flows.2.post.weight": [
+   96,
+   192,
+   1
+  ],
+  "flow.flows.2.post.bias": [
+   96
+  ],
+  "flow.flows.4.pre.weight": [
+   192,
+   96,
+   1
+  ],
+  "flow.flows.4.pre.bias": [
+   192
+  ],
+  "flow.flows.4.enc.in_layers.0.bias": [
+   384
+  ],
+  "flow.flows.4.enc.in_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.in_layers.0.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.4.enc.in_layers.1.bias": [
+   384
+  ],
+  "flow.flows.4.enc.in_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.in_layers.1.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.4.enc.in_layers.2.bias": [
+   384
+  ],
+  "flow.flows.4.enc.in_layers.2.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.in_layers.2.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.4.enc.res_skip_layers.0.bias": [
+   384
+  ],
+  "flow.flows.4.enc.res_skip_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.res_skip_layers.0.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.4.enc.res_skip_layers.1.bias": [
+   384
+  ],
+  "flow.flows.4.enc.res_skip_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.res_skip_layers.1.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.4.enc.res_skip_layers.2.bias": [
+   192
+  ],
+  "flow.flows.4.enc.res_skip_layers.2.weight_g": [
+   192,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.res_skip_layers.2.weight_v": [
+   192,
+   192,
+   1
+  ],
+  "flow.flows.4.enc.cond_layer.bias": [
+   1152
+  ],
+  "flow.flows.4.enc.cond_layer.weight_g": [
+   1152,
+   1,
+   1
+  ],
+  "flow.flows.4.enc.cond_layer.weight_v": [
+   1152,
+   256,
+   1
+  ],
+  "flow.flows.4.post.weight": [
+   96,
+   192,
+   1
+  ],
+  "flow.flows.4.post.bias": [
+   96
+  ],
+  "flow.flows.6.pre.weight": [
+   192,
+   96,
+   1
+  ],
+  "flow.flows.6.pre.bias": [
+   192
+  ],
+  "flow.flows.6.enc.in_layers.0.bias": [
+   384
+  ],
+  "flow.flows.6.enc.in_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.in_layers.0.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.6.enc.in_layers.1.bias": [
+   384
+  ],
+  "flow.flows.6.enc.in_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.in_layers.1.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.6.enc.in_layers.2.bias": [
+   384
+  ],
+  "flow.flows.6.enc.in_layers.2.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.in_layers.2.weight_v": [
+   384,
+   192,
+   5
+  ],
+  "flow.flows.6.enc.res_skip_layers.0.bias": [
+   384
+  ],
+  "flow.flows.6.enc.res_skip_layers.0.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.res_skip_layers.0.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.6.enc.res_skip_layers.1.bias": [
+   384
+  ],
+  "flow.flows.6.enc.res_skip_layers.1.weight_g": [
+   384,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.res_skip_layers.1.weight_v": [
+   384,
+   192,
+   1
+  ],
+  "flow.flows.6.enc.res_skip_layers.2.bias": [
+   192
+  ],
+  "flow.flows.6.enc.res_skip_layers.2.weight_g": [
+   192,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.res_skip_layers.2.weight_v": [
+   192,
+   192,
+   1
+  ],
+  "flow.flows.6.enc.cond_layer.bias": [
+   1152
+  ],
+  "flow.flows.6.enc.cond_layer.weight_g": [
+   1152,
+   1,
+   1
+  ],
+  "flow.flows.6.enc.cond_layer.weight_v": [
+   1152,
+   256,
+   1
+  ],
+  "flow.flows.6.post.weight": [
+   96,
+   192,
+   1
+  ],
+  "flow.flows.6.post.bias": [
+   96
+  ],
+  "dec.conv_pre.weight": [
+   512,
+   192,
+   7
+  ],
+  "dec.conv_pre.bias": [
+   512
+  ],
+  "dec.ups.0.bias": [
+   256
+  ],
+  "dec.ups.0.weight_g": [
+   512,
+   1,
+   1
+  ],
+  "dec.ups.0.weight_v": [
+   512,
+   256,
+   16
+  ],
+  "dec.ups.1.bias": [
+   128
+  ],
+  "dec.ups.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.ups.1.weight_v": [
+   256,
+   128,
+   16
+  ],
+  "dec.ups.2.bias": [
+   64
+  ],
+  "dec.ups.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.ups.2.weight_v": [
+   128,
+   64,
+   4
+  ],
+  "dec.ups.3.bias": [
+   32
+  ],
+  "dec.ups.3.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.ups.3.weight_v": [
+   64,
+   32,
+   4
+  ],
+  "dec.resblocks.0.convs1.0.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs1.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs1.0.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.0.convs1.1.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs1.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs1.1.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.0.convs1.2.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs1.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs1.2.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.0.convs2.0.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs2.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs2.0.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.0.convs2.1.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs2.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs2.1.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.0.convs2.2.bias": [
+   256
+  ],
+  "dec.resblocks.0.convs2.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.0.convs2.2.weight_v": [
+   256,
+   256,
+   3
+  ],
+  "dec.resblocks.1.convs1.0.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs1.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs1.0.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.1.convs1.1.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs1.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs1.1.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.1.convs1.2.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs1.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs1.2.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.1.convs2.0.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs2.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs2.0.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.1.convs2.1.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs2.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs2.1.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.1.convs2.2.bias": [
+   256
+  ],
+  "dec.resblocks.1.convs2.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.1.convs2.2.weight_v": [
+   256,
+   256,
+   7
+  ],
+  "dec.resblocks.2.convs1.0.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs1.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs1.0.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.2.convs1.1.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs1.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs1.1.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.2.convs1.2.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs1.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs1.2.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.2.convs2.0.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs2.0.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs2.0.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.2.convs2.1.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs2.1.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs2.1.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.2.convs2.2.bias": [
+   256
+  ],
+  "dec.resblocks.2.convs2.2.weight_g": [
+   256,
+   1,
+   1
+  ],
+  "dec.resblocks.2.convs2.2.weight_v": [
+   256,
+   256,
+   11
+  ],
+  "dec.resblocks.3.convs1.0.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs1.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs1.0.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.3.convs1.1.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs1.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs1.1.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.3.convs1.2.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs1.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs1.2.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.3.convs2.0.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs2.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs2.0.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.3.convs2.1.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs2.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs2.1.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.3.convs2.2.bias": [
+   128
+  ],
+  "dec.resblocks.3.convs2.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.3.convs2.2.weight_v": [
+   128,
+   128,
+   3
+  ],
+  "dec.resblocks.4.convs1.0.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs1.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs1.0.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.4.convs1.1.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs1.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs1.1.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.4.convs1.2.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs1.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs1.2.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.4.convs2.0.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs2.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs2.0.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.4.convs2.1.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs2.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs2.1.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.4.convs2.2.bias": [
+   128
+  ],
+  "dec.resblocks.4.convs2.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.4.convs2.2.weight_v": [
+   128,
+   128,
+   7
+  ],
+  "dec.resblocks.5.convs1.0.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs1.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs1.0.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.5.convs1.1.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs1.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs1.1.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.5.convs1.2.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs1.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs1.2.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.5.convs2.0.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs2.0.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs2.0.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.5.convs2.1.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs2.1.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs2.1.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.5.convs2.2.bias": [
+   128
+  ],
+  "dec.resblocks.5.convs2.2.weight_g": [
+   128,
+   1,
+   1
+  ],
+  "dec.resblocks.5.convs2.2.weight_v": [
+   128,
+   128,
+   11
+  ],
+  "dec.resblocks.6.convs1.0.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs1.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs1.0.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.6.convs1.1.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs1.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs1.1.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.6.convs1.2.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs1.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs1.2.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.6.convs2.0.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs2.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs2.0.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.6.convs2.1.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs2.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs2.1.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.6.convs2.2.bias": [
+   64
+  ],
+  "dec.resblocks.6.convs2.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.6.convs2.2.weight_v": [
+   64,
+   64,
+   3
+  ],
+  "dec.resblocks.7.convs1.0.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs1.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs1.0.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.7.convs1.1.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs1.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs1.1.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.7.convs1.2.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs1.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs1.2.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.7.convs2.0.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs2.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs2.0.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.7.convs2.1.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs2.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs2.1.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.7.convs2.2.bias": [
+   64
+  ],
+  "dec.resblocks.7.convs2.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.7.convs2.2.weight_v": [
+   64,
+   64,
+   7
+  ],
+  "dec.resblocks.8.convs1.0.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs1.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs1.0.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.8.convs1.1.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs1.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs1.1.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.8.convs1.2.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs1.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs1.2.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.8.convs2.0.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs2.0.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs2.0.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.8.convs2.1.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs2.1.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs2.1.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.8.convs2.2.bias": [
+   64
+  ],
+  "dec.resblocks.8.convs2.2.weight_g": [
+   64,
+   1,
+   1
+  ],
+  "dec.resblocks.8.convs2.2.weight_v": [
+   64,
+   64,
+   11
+  ],
+  "dec.resblocks.9.convs1.0.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs1.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs1.0.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.9.convs1.1.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs1.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs1.1.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.9.convs1.2.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs1.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs1.2.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.9.convs2.0.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs2.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs2.0.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.9.convs2.1.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs2.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs2.1.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.9.convs2.2.bias": [
+   32
+  ],
+  "dec.resblocks.9.convs2.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.9.convs2.2.weight_v": [
+   32,
+   32,
+   3
+  ],
+  "dec.resblocks.10.convs1.0.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs1.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs1.0.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.10.convs1.1.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs1.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs1.1.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.10.convs1.2.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs1.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs1.2.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.10.convs2.0.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs2.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs2.0.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.10.convs2.1.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs2.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs2.1.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.10.convs2.2.bias": [
+   32
+  ],
+  "dec.resblocks.10.convs2.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.10.convs2.2.weight_v": [
+   32,
+   32,
+   7
+  ],
+  "dec.resblocks.11.convs1.0.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs1.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs1.0.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.resblocks.11.convs1.1.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs1.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs1.1.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.resblocks.11.convs1.2.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs1.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs1.2.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.resblocks.11.convs2.0.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs2.0.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs2.0.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.resblocks.11.convs2.1.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs2.1.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs2.1.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.resblocks.11.convs2.2.bias": [
+   32
+  ],
+  "dec.resblocks.11.convs2.2.weight_g": [
+   32,
+   1,
+   1
+  ],
+  "dec.resblocks.11.convs2.2.weight_v": [
+   32,
+   32,
+   11
+  ],
+  "dec.conv_post.weight": [
+   1,
+   32,
+   7
+  ],
+  "dec.cond.weight": [
+   512,
+   256,
+   1
+  ],
+  "dec.cond.bias": [
+   512
+  ]
+ },
+ "unusedParams": [],
+ "inputs": [
+  "dec_head",
+  "flow_head",
+  "g",
+  "phone",
+  "return_length",
+  "rnd"
+ ]
+}

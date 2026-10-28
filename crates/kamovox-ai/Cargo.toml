@@ -1,0 +1,13 @@
+[package]
+name = "kamovox-ai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "copy-dylibs", "tls-native", "api-31", "directml"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+half = "2"
+realfft = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+kaldi-fbank = "0.1"

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/kamovox-dsp", "crates/kamovox-ai", "crates/kamovox-link", "crates/kamovox-apo"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[profile.dev.package.kamovox-dsp]
+opt-level = 3
+
+[profile.dev.package.kamovox-ai]
+opt-level = 3
+
+[profile.dev.package.nnnoiseless]
+opt-level = 3
+
+[profile.dev.package.realfft]
+opt-level = 3
+
+[profile.dev.package.rustfft]
+opt-level = 3

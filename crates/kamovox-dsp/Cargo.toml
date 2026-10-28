@@ -1,0 +1,10 @@
+[package]
+name = "kamovox-dsp"
+version = "0.1.0"
+edition = "2021"
+description = "KamoVox real-time voice processing"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+nnnoiseless = { version = "0.5", default-features = false }
+realfft = "3"

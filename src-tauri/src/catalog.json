@@ -1,0 +1,30 @@
+{
+  "base": [
+    {
+      "file": "contentvec_768l12.onnx",
+      "url": "https://huggingface.co/TigreGotico/voiceclonnx-rvc/resolve/main/contentvec_768l12.onnx",
+      "size": 377755911,
+      "sha256": "cbddd8fa9352b3128df6359e2e3da6be0f9072e768e51e3efc3004e5030ea97f"
+    },
+    {
+      "file": "rmvpe.onnx",
+      "url": "https://huggingface.co/TigreGotico/voiceclonnx-rvc/resolve/main/rmvpe.onnx",
+      "size": 361688443,
+      "sha256": "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd"
+    }
+  ],
+    "voices": [
+    {"id": "egirl", "name": "Egirl", "tags": [], "description": "Voz aguda e leve.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/egirl.zip", "pitch": 12, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/egirl.zip", "size": 221389729, "sha256": "34554ba3eb5df6ed4fc8abf57974c9ae65fed6d1aab2fa71a98157e8460d0db1"},
+    {"id": "zezao", "name": "Zezão", "tags": [], "description": "Voz grave e arrastada.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/zezao.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/zezao.zip", "size": 102587949, "sha256": "3d33b7370aee98b86ef79efa7b202416923655b77ae0438987d0670fb0ba0b11"},
+    {"id": "patolino", "name": "Patolino", "tags": [], "description": "Voz anasalada de desenho.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/patolino.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/patolino.zip", "size": 167135292, "sha256": "0214a20ce9964179a5f5a06b23df6d1eee1ffe0ec1ed3e0034290940d6584ef4"},
+    {"id": "chapolin", "name": "Chapolin", "tags": [], "description": "Voz aguda e atrapalhada.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/chapolin.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/chapolin.zip", "size": 87669975, "sha256": "7d14333acd0080990281ec9a62537529a2994cc0fc3d2670213c49198094c928"},
+    {"id": "jessie", "name": "Jessie", "tags": [], "description": "Voz animada de cowgirl.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/jessie.zip", "pitch": 12, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/jessie.zip", "size": 104068519, "sha256": "b20c627863856393fbc0e916563f654337014d340d735e5fd0e3fd839194ce9c"},
+    {"id": "woody", "name": "Woody", "tags": [], "description": "Voz de caubói.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/woody.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/woody.zip", "size": 78877093, "sha256": "36c2d467d20ce68d6a459b9438bfae77cde9f4b5d5f3be6b6758733b6dc1ec4c"},
+    {"id": "baby", "name": "Baby", "tags": [], "description": "Voz infantil.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/baby.zip", "pitch": 12, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/baby.zip", "size": 62587608, "sha256": "09ad2ed08f44cfcca04c45dce0efbd68c86a0b4bf65e17e2689b1be639749ba0"},
+    {"id": "wendel", "name": "Wendel Bezerra", "tags": [], "description": "Voz de dublador.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/wendel.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/wendel.zip", "size": 87383735, "sha256": "925ccb8c747872ef3fbaf64716fb4a9ad16e13a79634f6ad35a10ef538a98baa"},
+    {"id": "ines", "name": "Inês Brasil", "tags": [], "description": "Voz alta e marcante.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/ines.zip", "pitch": 12, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/ines.zip", "size": 104119988, "sha256": "f9fef4eaa5eef74f9d697f2f77bf56cd34f9aa14fa8ec969c5ba89e680d35eb0"},
+    {"id": "bolsonaro", "name": "Bolsonaro", "tags": [], "description": "Voz grave.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/bolsonaro.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/bolsonaro.zip", "size": 77131657, "sha256": "8861bbbc97dfd40d8d20a50a811f9139d13b2bc26b5975fdf12ebcd3a1e57048"},
+    {"id": "buzz", "name": "Buzz", "tags": [], "description": "Voz de astronauta.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/buzz.zip", "pitch": 0, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/buzz.zip", "size": 126691877, "sha256": "a6d4e789b4370e80c9e4cd162db7d39d0978f8aec24cbbf78983efb57abc371d"},
+    {"id": "elsa", "name": "Elsa", "tags": [], "description": "Voz clara e alta.", "credit": "KamoVox", "terms": "https://github.com/Konnak/KamoVox", "source": "https://github.com/Konnak/KamoVox/releases/download/voices/elsa.zip", "pitch": 12, "url": "https://github.com/Konnak/KamoVox/releases/download/voices/elsa.zip", "size": 76685562, "sha256": "32b4899c32c7b4356250de32dd42c4b42efad62411b374e5fa1aac3cc00eaef7"}
+  ]
+}
