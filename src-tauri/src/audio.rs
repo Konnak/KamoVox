@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.24-enroll-fix-20261029";
+pub const BUILD_ID: &str = "0.1.25-gate-recheck-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1078,7 +1078,7 @@ impl InputState {
         store_peak(&self.shared.level_in, peak(&self.mono));
         if let Ok(mut slot) = self.shared.calib.try_lock() {
             if let Some(buf) = slot.as_mut() {
-                let cap = 48_000 * 12;
+                let cap = 48_000 * 20;
                 if buf.len() < cap {
                     let room = cap - buf.len();
                     let n = self.mono.len().min(room);
@@ -1195,11 +1195,6 @@ fn neural_loop(
             thread::sleep(Duration::from_millis(8));
             continue;
         }
-        if last.elapsed() < period {
-            thread::sleep(Duration::from_millis(8));
-            continue;
-        }
-        last = std::time::Instant::now();
         let (centroid, gallery, cfg) = match shared.params.lock() {
             Ok(p) if p.voice_gate && p.voice_embed.len() == EMBED_DIM => {
                 (
@@ -1213,20 +1208,26 @@ fn neural_loop(
         let Some(centroid) = centroid else {
             shared.clear_neural();
             scored_utt = 0;
+            thread::sleep(Duration::from_millis(8));
             continue;
         };
 
-        // Full window preferred; short frozen ("Oi") scored once SHORT_SPEECH_MS is met.
+        // First score as soon as ~280 ms of speech exists; then a sliding window
+        // of the last ~1.8 s every LIVE_PERIOD_MS. Never freeze on the first hop.
         let can_score = speech.ready_first()
             || (speech.ready_short() && (speech.frozen() || speech.speech_ms() >= FIRST_SPEECH_MS as f32));
         if !can_score {
-            if speech.utterance_id != scored_utt {
-                scored_utt = 0;
-            }
+            thread::sleep(Duration::from_millis(8));
             continue;
         }
 
         let utt = speech.utterance_id;
+        let due = scored_utt != utt || last.elapsed() >= period;
+        if !due {
+            thread::sleep(Duration::from_millis(8));
+            continue;
+        }
+
         let window = speech.snapshot(win);
         let t0 = std::time::Instant::now();
         shared.neural_busy.store(true, Ordering::Release);
@@ -1234,37 +1235,24 @@ fn neural_loop(
             shared.neural_busy.store(false, Ordering::Release);
             continue;
         }
-        let mut best: Option<(f32, Vec<f32>)> = None;
-        let score_one = |e: &mut SpeakerEmbedder, pcm: &[f32], centroid: &[f32], gallery: &[f32]| {
-            let wav = to_16k(pcm, sample_rate);
-            e.embed(&wav).ok().map(|live| (max_cosine_flat(&live, centroid, gallery), wav))
-        };
-        if let Some(pair) = score_one(&mut embedder, &window, &centroid, &gallery) {
-            best = Some(pair);
-        }
-        // Short tail vs gallery of short enrollments — this is what "Oi" looks like.
-        let short_n = ((sample_rate as u64 * 400) / 1000) as usize;
-        if window.len() > short_n + short_n / 5 {
-            let tail = &window[window.len() - short_n..];
-            if let Some((s, wav)) = score_one(&mut embedder, tail, &centroid, &gallery) {
-                match &best {
-                    Some((b, _)) if s > *b => best = Some((s, wav)),
-                    None => best = Some((s, wav)),
-                    _ => {}
-                }
-            }
-        }
+        // One sliding window — do not max() a lucky 400 ms tail with the full
+        // phrase (that is how a YouTube clip hit 0.41 and opened Locked).
+        let wav = to_16k(&window, sample_rate);
+        let best = embedder
+            .embed(&wav)
+            .ok()
+            .map(|live| max_cosine_flat(&live, &centroid, &gallery));
         shared.neural_busy.store(false, Ordering::Release);
-        match best {
-            Some((score, wav_used)) => {
-                let infer_ms = t0.elapsed().as_secs_f32() * 1000.0;
-                if speech.utterance_id == utt {
-                    let infer = shared.publish_neural(score, utt, cfg, infer_ms);
-                    scored_utt = utt;
-                    dump_biometry_capture(utt, infer, sample_rate, &window, &wav_used, score, &centroid);
-                }
+        if let Some(score) = best {
+            let infer_ms = t0.elapsed().as_secs_f32() * 1000.0;
+            if speech.utterance_id == utt {
+                let infer = shared.publish_neural(score, utt, cfg, infer_ms);
+                scored_utt = utt;
+                last = std::time::Instant::now();
+                dump_biometry_capture(utt, infer, sample_rate, &window, &wav, score, &centroid);
             }
-            None => {}
+        } else {
+            last = std::time::Instant::now();
         }
     }
     shared.neural_busy.store(false, Ordering::Release);

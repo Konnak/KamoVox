@@ -2089,8 +2089,8 @@ function micSoundControls() {
         ${slider({
           id: "voice-strict",
           label: "Exigência da biometria",
-          hint: "Calibrada na gravação — deixe baixo se a sua voz às vezes some",
-          help: "0% aceita a sua voz com folga. 100% é mais rígido contra outras pessoas. Regrave se mudar de microfone ou de sala.",
+          hint: "0% folga para a sua voz · 100% limiar ~0,50 contra vídeo/TV",
+          help: "0% aceita a sua voz com folga. 100% sobe o cosseno até ~0,50 para não abrir com YouTube ou outra pessoa. Regrave se mudar de microfone ou de sala.",
           min: 0,
           max: 100,
           step: 1,
@@ -3980,6 +3980,14 @@ function onTrayAction(action: TrayAction) {
 
 // ---------- boot ----------
 
+function paintAppVersion() {
+  const v = `v${__APP_VERSION__}`;
+  const footer = document.getElementById("app-version");
+  const log = document.getElementById("log-ver");
+  if (footer) footer.textContent = v;
+  if (log) log.textContent = v;
+}
+
 function setupWindow() {
   try {
     const win = getCurrentWindow();
@@ -4283,6 +4291,7 @@ async function hideSplash() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  paintAppVersion();
   setupWindow();
   setupPopovers();
   renderNav();

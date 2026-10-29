@@ -23,9 +23,9 @@ pub const FIRST_SPEECH_MS: u32 = 280;
 /// Absolute minimum for a short-utterance attempt ("Oi" / "Olá").
 pub const SHORT_SPEECH_MS: u32 = 220;
 /// Sliding window of compacted speech for live scores.
-pub const LIVE_SPEECH_MS: u32 = 1_200;
-/// How often to refresh the live cosine (ms).
-pub const LIVE_PERIOD_MS: u32 = 50;
+pub const LIVE_SPEECH_MS: u32 = 1_800;
+/// How often to refresh the live cosine (ms) after the first score of an utterance.
+pub const LIVE_PERIOD_MS: u32 = 400;
 /// Keep frozen speech after silence so short phrases can still be scored.
 pub const SILENCE_RESET_MS: u32 = 1_600;
 /// Quiet frames shorter than this are holes inside the same utterance.
@@ -209,11 +209,7 @@ impl SpeakerEmbedder {
         let self_p05 = percentile(&scores, 0.05);
         let self_p10 = percentile(&scores, 0.10);
         let self_median = percentile(&scores, 0.50);
-
-        // Generous owner floor: live short windows of the same voice must pass.
-        let thresh_lo = (self_p05 - 0.08).clamp(0.10, 0.35);
-        let thresh_hi = (self_p10 - 0.02).clamp(thresh_lo + 0.05, 0.48);
-        let thresh_reject = (self_p05 - 0.22).clamp(0.05, thresh_lo - 0.08);
+        let (thresh_lo, thresh_hi, thresh_reject) = thresh_from_self_scores(self_p05, self_p10, self_median);
 
         Ok(EnrollResult {
             embed: acc,
@@ -320,9 +316,21 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 /// Map UI strict 0..1 onto enrolled cosine thresholds.
 pub fn thresh_for_strict(strict: f32, lo: f32, hi: f32) -> f32 {
-    let lo = if lo > 0.05 { lo } else { 0.12 };
-    let hi = if hi > lo { hi.min(0.48) } else { (lo + 0.10).min(0.42) };
+    let lo = if lo > 0.05 { lo } else { 0.18 };
+    let hi = if hi > lo { hi.min(0.55) } else { 0.50 };
     lo + strict.clamp(0.0, 1.0) * (hi - lo)
+}
+
+/// Owner floor at 0%, impostor ceiling at 100%.
+///
+/// 0.1.20–0.1.24 used `p10 − 0.02` as the 100% cap (~0.33–0.36), so a YouTube
+/// clip that hit 0.38 on an 800 ms window opened the gate at “100%”.
+fn thresh_from_self_scores(self_p05: f32, self_p10: f32, self_median: f32) -> (f32, f32, f32) {
+    let _ = self_p10;
+    let thresh_lo = (self_p05 - 0.05).clamp(0.18, 0.32);
+    let thresh_hi = self_median.max(0.50).clamp(thresh_lo + 0.14, 0.55);
+    let thresh_reject = (self_p05 - 0.18).clamp(0.08, (thresh_lo - 0.08).max(0.08));
+    (thresh_lo, thresh_hi, thresh_reject)
 }
 
 fn percentile(sorted: &[f32], p: f32) -> f32 {
@@ -417,13 +425,26 @@ fn l2_normalize(v: &mut [f32]) {
     }
 }
 
-/// Downsample (or upsample) mono PCM to 16 kHz with linear interpolation.
+/// Downsample (or upsample) mono PCM to 16 kHz.
+///
+/// 48 kHz / 44.1 kHz use the windowed-sinc resampler (anti-alias). Linear
+/// interpolation-only decimation aliased the enrollment vs live CAM++ windows
+/// (`inteira = 0.05` on a 15 s take in 0.1.20).
 pub fn to_16k(samples: &[f32], sr: u32) -> Vec<f32> {
     if sr == 0 || samples.is_empty() {
         return Vec::new();
     }
     if sr == SPEAKER_SR {
         return samples.to_vec();
+    }
+    if let Some(r) = cached_resampler(sr) {
+        let out_len = r.output_len(samples.len());
+        if out_len == 0 {
+            return Vec::new();
+        }
+        let mut out = vec![0.0f32; out_len];
+        r.process(samples, &mut out);
+        return out;
     }
     let out_len = (samples.len() as u64 * SPEAKER_SR as u64 / sr as u64) as usize;
     if out_len == 0 {
@@ -440,6 +461,24 @@ pub fn to_16k(samples: &[f32], sr: u32) -> Vec<f32> {
         *o = a + (b - a) * frac;
     }
     out
+}
+
+fn cached_resampler(from: u32) -> Option<&'static crate::resample::Resampler> {
+    match from {
+        48_000 => {
+            static R: std::sync::OnceLock<crate::resample::Resampler> = std::sync::OnceLock::new();
+            Some(R.get_or_init(|| crate::resample::Resampler::new(48_000, SPEAKER_SR)))
+        }
+        44_100 => {
+            static R: std::sync::OnceLock<crate::resample::Resampler> = std::sync::OnceLock::new();
+            Some(R.get_or_init(|| crate::resample::Resampler::new(44_100, SPEAKER_SR)))
+        }
+        32_000 => {
+            static R: std::sync::OnceLock<crate::resample::Resampler> = std::sync::OnceLock::new();
+            Some(R.get_or_init(|| crate::resample::Resampler::new(32_000, SPEAKER_SR)))
+        }
+        _ => None,
+    }
 }
 
 /// Streaming speech accumulator at an arbitrary sample rate.
@@ -617,11 +656,22 @@ mod tests {
 
     #[test]
     fn thresh_for_strict_is_monotonic() {
-        let a = thresh_for_strict(0.0, 0.18, 0.42);
-        let b = thresh_for_strict(0.5, 0.18, 0.42);
-        let c = thresh_for_strict(1.0, 0.18, 0.42);
+        let a = thresh_for_strict(0.0, 0.18, 0.52);
+        let b = thresh_for_strict(0.5, 0.18, 0.52);
+        let c = thresh_for_strict(1.0, 0.18, 0.52);
         assert!(a < b && b < c);
-        assert!(c <= 0.48);
+        assert!(c <= 0.55);
+    }
+
+    #[test]
+    fn thresh_100_percent_is_not_stuck_near_impostor_band() {
+        // Video 0.1.20: p05≈0.28 p10≈0.35 → aceita 0.31–0.36. 100% must not sit there.
+        let (lo, hi, reject) = thresh_from_self_scores(0.28, 0.35, 0.40);
+        assert!(lo >= 0.18 && lo < 0.30, "lo {lo}");
+        assert!(hi >= 0.48, "100% ceiling stuck at {hi}");
+        assert!(hi <= 0.55);
+        assert!(thresh_for_strict(1.0, lo, hi) >= 0.48);
+        assert!(reject < lo);
     }
 
     #[test]
