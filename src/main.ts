@@ -1016,15 +1016,27 @@ function save() {
   scheduleHotkeys();
 }
 
-let pushTimer: number | undefined;
 let saveTimer: number | undefined;
+let paramsFlight = false;
+let paramsDirty = false;
 function pushParams() {
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(save, 400);
-  window.clearTimeout(pushTimer);
-  pushTimer = window.setTimeout(() => {
-    invoke("set_params", { params: settings.params }).catch((e) => toast(String(e)));
-  }, 16);
+  saveTimer = window.setTimeout(save, 500);
+  paramsDirty = true;
+  if (paramsFlight) return;
+  const send = () => {
+    if (!paramsDirty) {
+      paramsFlight = false;
+      return;
+    }
+    paramsDirty = false;
+    paramsFlight = true;
+    void invoke("set_params", { params: settings.params }).finally(() => {
+      if (paramsDirty) send();
+      else paramsFlight = false;
+    });
+  };
+  send();
 }
 
 let toastTimer: number | undefined;
@@ -1062,6 +1074,8 @@ interface SliderDef {
   get: () => number;
   set: (v: number) => void;
   onChange?: () => void;
+  /** Heavy work (reload the AI voice) waits until the slider is released. */
+  commitOnRelease?: boolean;
   /** Frase curta que acompanha o valor, no mesmo card. */
   feel?: (v: number) => string;
 }
@@ -1140,23 +1154,32 @@ function bindSliders() {
       d.set(q);
       paint();
     };
-    const commit = () => {
-      if (d.onChange) {
+    const publish = () => {
+      if (d.commitOnRelease) return;
+      if (d.onChange) d.onChange();
+      else pushParams();
+    };
+    const release = () => {
+      if (d.commitOnRelease && d.onChange) {
         save();
         d.onChange();
-      } else {
+      } else if (!d.onChange) {
         pushParams();
       }
     };
 
     paint();
-    input.addEventListener("input", () => preview(Number(input.value)));
-    input.addEventListener("change", commit);
-    input.addEventListener("pointerup", commit);
-    input.addEventListener("keyup", commit);
+    input.addEventListener("input", () => {
+      preview(Number(input.value));
+      publish();
+    });
+    input.addEventListener("change", release);
+    input.addEventListener("pointerup", release);
+    input.addEventListener("keyup", release);
     out.addEventListener("dblclick", () => {
       preview(d.def);
-      commit();
+      release();
+      publish();
     });
 
     $$<HTMLButtonElement>(".stepper button", row).forEach((btn) => {
@@ -1164,10 +1187,12 @@ function bindSliders() {
       let timer: number | undefined;
       const stop = () => {
         window.clearTimeout(timer);
-        commit();
+        release();
+        publish();
       };
       const tick = (delay: number) => {
         preview(d.get() + dir * d.step);
+        publish();
         timer = window.setTimeout(() => tick(Math.max(30, delay * 0.82)), delay);
       };
       btn.addEventListener("pointerdown", (e) => {
@@ -1765,12 +1790,13 @@ function renderAi() {
     stepper: true,
     format: (v) => `${v} ms`,
     get: () => a.custom[key],
-    set: (v) => (a.custom[key] = v),
-    onChange: () => {
+    set: (v) => {
+      a.custom[key] = v;
       const total = $("#ai-total");
       if (total) total.textContent = aiTotalText();
-      scheduleAiRestart();
     },
+    onChange: () => scheduleAiRestart(),
+    commitOnRelease: true,
   });
   const preset = AI_PRESETS.find((p) => p.id === a.preset)!;
 

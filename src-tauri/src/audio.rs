@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.33-slider-release-20261029";
+pub const BUILD_ID: &str = "0.1.34-live-controls-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -284,11 +284,17 @@ impl Shared {
                 return;
             };
             if proc.same_except_tone(&guard) {
+                let boost = guard.boost;
+                let sensitivity = guard.sensitivity_db;
+                let compress = guard.compress;
+                let noise = guard.noise_floor;
+                let impact = guard.impact;
+                let amount = guard.denoise_amount;
                 let bass = guard.bass_db;
                 let treble = guard.treble_db;
                 let eq = guard.eq;
                 drop(guard);
-                proc.apply_tone(bass, treble, eq);
+                proc.apply_live(boost, sensitivity, compress, noise, impact, amount, bass, treble, eq);
                 *seen = gen;
                 return;
             }
