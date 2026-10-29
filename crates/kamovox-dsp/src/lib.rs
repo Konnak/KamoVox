@@ -608,6 +608,76 @@ impl Processor {
         &self.params
     }
 
+    /// True when `other` matches the live params except bass, treble and the graphic EQ.
+    pub fn same_except_tone(&self, other: &Params) -> bool {
+        let a = &self.params;
+        let near = |x: f32, y: f32| (x - y).abs() < 1e-4;
+        a.enabled == other.enabled
+            && a.voices == other.voices
+            && near(a.pitch, other.pitch)
+            && near(a.formant, other.formant)
+            && near(a.breath, other.breath)
+            && near(a.rasp, other.rasp)
+            && near(a.vibrato, other.vibrato)
+            && near(a.nasal, other.nasal)
+            && a.vocoder == other.vocoder
+            && near(a.vocoder_mix, other.vocoder_mix)
+            && a.cave == other.cave
+            && a.hall == other.hall
+            && a.chorus == other.chorus
+            && a.ghost == other.ghost
+            && a.echo == other.echo
+            && a.room == other.room
+            && a.slap == other.slap
+            && a.flange == other.flange
+            && a.bottle == other.bottle
+            && near(a.boost, other.boost)
+            && near(a.sensitivity_db, other.sensitivity_db)
+            && a.denoise == other.denoise
+            && near(a.denoise_amount, other.denoise_amount)
+            && near(a.noise_floor, other.noise_floor)
+            && near(a.impact, other.impact)
+            && near(a.compress, other.compress)
+            && a.voice_gate == other.voice_gate
+            && near(a.voice_strict, other.voice_strict)
+            && a.voice_bands == other.voice_bands
+            && near(a.voice_pitch, other.voice_pitch)
+            && near(a.voice_pitch_lo, other.voice_pitch_lo)
+            && near(a.voice_pitch_hi, other.voice_pitch_hi)
+            && near(a.voice_level, other.voice_level)
+            && near(a.voice_f1, other.voice_f1)
+            && near(a.voice_f2, other.voice_f2)
+            && near(a.voice_f3, other.voice_f3)
+            && a.voice_embed == other.voice_embed
+            && a.voice_gallery == other.voice_gallery
+            && near(a.voice_neural_lo, other.voice_neural_lo)
+            && near(a.voice_neural_hi, other.voice_neural_hi)
+            && near(a.voice_neural_reject, other.voice_neural_reject)
+            && a.voice_protect == other.voice_protect
+            && a.append_original == other.append_original
+            && a.smooth == other.smooth
+    }
+
+    /// Retune only the shelves and the graphic EQ. Does not touch pitch, denoise or the gate.
+    pub fn apply_tone(&mut self, bass_db: f32, treble_db: f32, eq: [f32; 10]) {
+        self.params.bass_db = bass_db;
+        self.params.treble_db = treble_db;
+        self.params.eq = eq;
+        self.retune_tone();
+    }
+
+    fn retune_tone(&mut self) {
+        let bass = self.params.bass_db;
+        let treble = self.params.treble_db;
+        let eq = self.params.eq;
+        let sr = self.sr;
+        self.bass.retune(Biquad::low_shelf(sr, 180.0, bass.clamp(-30.0, 15.0)));
+        self.treble.retune(Biquad::high_shelf(sr, 4_000.0, treble.clamp(-30.0, 15.0)));
+        for (i, band) in self.eq.iter_mut().enumerate() {
+            band.retune(eq_band(sr, i, eq[i]));
+        }
+    }
+
     pub fn set_params(&mut self, mut p: Params) {
         p.voices.truncate(MAX_CHAIN);
         let old = std::mem::replace(&mut self.params, p);
@@ -671,13 +741,6 @@ impl Processor {
             self.sfx.flange.clear();
         }
 
-        self.bass.retune(Biquad::low_shelf(self.sr, 180.0, p.bass_db.clamp(-30.0, 15.0)));
-        self.treble.retune(Biquad::high_shelf(self.sr, 4_000.0, p.treble_db.clamp(-30.0, 15.0)));
-        let sr = self.sr;
-        for (i, band) in self.eq.iter_mut().enumerate() {
-            band.retune(eq_band(sr, i, p.eq[i]));
-        }
-
         self.owner.set(
             p.voice_gate,
             p.voice_bands,
@@ -706,6 +769,7 @@ impl Processor {
         } else {
             self.denoiser = None;
         }
+        self.retune_tone();
     }
 
     /// Processes one mono block in place.

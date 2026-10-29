@@ -494,12 +494,24 @@ function paintEq() {
   const zero = eqY(0, h, pad);
   $("#eq-curve").setAttribute("d", line);
   $("#eq-area").setAttribute("d", `${line} L${pts[pts.length - 1]!.x.toFixed(1)} ${zero} L${pts[0]!.x.toFixed(1)} ${zero} Z`);
-  $("#eq-dots").innerHTML = pts
-    .map(
-      (p, i) =>
-        `<circle data-eq="${i}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${eqDrag === i ? 7 : 5.5}" fill="${p.color}" />`,
-    )
-    .join("");
+  const dots = $("#eq-dots");
+  let circles = dots.querySelectorAll("circle");
+  if (circles.length !== pts.length) {
+    dots.innerHTML = pts
+      .map(
+        (p, i) =>
+          `<circle data-eq="${i}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${eqDrag === i ? 7 : 5.5}" fill="${p.color}" />`,
+      )
+      .join("");
+    circles = dots.querySelectorAll("circle");
+  }
+  pts.forEach((p, i) => {
+    const c = circles[i];
+    if (!c) return;
+    c.setAttribute("cx", p.x.toFixed(1));
+    c.setAttribute("cy", p.y.toFixed(1));
+    c.setAttribute("r", eqDrag === i ? "7" : "5.5");
+  });
   const fold = document.querySelector('[data-fold="eq"] small');
   if (fold) fold.textContent = eqSummary();
 }
@@ -932,12 +944,14 @@ function save() {
 }
 
 let pushTimer: number | undefined;
+let saveTimer: number | undefined;
 function pushParams() {
-  save();
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(save, 400);
   window.clearTimeout(pushTimer);
   pushTimer = window.setTimeout(() => {
     invoke("set_params", { params: settings.params }).catch((e) => toast(String(e)));
-  }, 12);
+  }, 16);
 }
 
 let toastTimer: number | undefined;

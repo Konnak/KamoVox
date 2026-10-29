@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.29-audit-20261029";
+pub const BUILD_ID: &str = "0.1.30-eq-live-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -274,7 +274,11 @@ impl Shared {
         let gen = self.generation.load(Ordering::Acquire);
         if gen != *seen {
             if let Ok(p) = self.params.try_lock() {
-                proc.set_params(map(p.clone()));
+                if proc.same_except_tone(&p) {
+                    proc.apply_tone(p.bass_db, p.treble_db, p.eq);
+                } else {
+                    proc.set_params(map(p.clone()));
+                }
                 *seen = gen;
             }
         }
