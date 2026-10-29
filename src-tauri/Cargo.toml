@@ -1,6 +1,6 @@
 [package]
 name = "kamovox"
-version = "0.1.26"
+version = "0.1.27"
 description = "KamoVox voice changer"
 authors = ["KamoVox"]
 edition = "2021"

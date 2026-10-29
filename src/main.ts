@@ -808,13 +808,20 @@ function cleanParams(raw: Partial<Params> & { customPitch?: number }): Params {
   p.voiceF2 = Number(raw.voiceF2) > 200 ? Number(raw.voiceF2) : 0;
   p.voiceF3 = Number(raw.voiceF3) > 400 ? Number(raw.voiceF3) : 0;
   const embed = Array.isArray(raw.voiceEmbed)
-    ? raw.voiceEmbed.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+    ? raw.voiceEmbed.map((v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      })
     : [];
   p.voiceEmbed = embed.length === 512 ? embed : [];
   const gallery = Array.isArray(raw.voiceGallery)
-    ? raw.voiceGallery.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+    ? raw.voiceGallery.map((v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      })
     : [];
-  p.voiceGallery = gallery.length >= 512 && gallery.length % 512 === 0 ? gallery.slice(0, 12 * 512) : [];
+  p.voiceGallery =
+    gallery.length >= 512 ? gallery.slice(0, Math.floor(gallery.length / 512) * 512).slice(0, 12 * 512) : [];
   p.voiceNeuralLo = Number(raw.voiceNeuralLo) > 0.05 ? Number(raw.voiceNeuralLo) : 0;
   p.voiceNeuralHi = Number(raw.voiceNeuralHi) > p.voiceNeuralLo ? Number(raw.voiceNeuralHi) : 0;
   p.voiceNeuralReject =
@@ -2603,6 +2610,7 @@ async function finishVoicePrint() {
       selfP05: number;
       selfP10: number;
       selfMedian: number;
+      selfLive: number;
     }>("voice_print_end");
     settings.params.voiceBands = print.bands;
     settings.params.voicePitch = print.pitch;
@@ -2624,8 +2632,13 @@ async function finishVoicePrint() {
     save();
     await invoke("set_params", { params: settings.params });
     const galleryN = Math.floor((settings.params.voiceGallery.length || 0) / 512);
+    const protoN = Math.max(galleryN, print.embed?.length === 512 ? 1 : 0);
+    const liveNote =
+      Number.isFinite(print.selfLive) && print.selfLive > 0
+        ? ` · replay ao vivo ${print.selfLive.toFixed(2)}`
+        : "";
     const neuralNote = print.neural
-      ? `Biometria calibrada · ${galleryN} impressões · p05 ${print.selfP05.toFixed(2)} p10 ${print.selfP10.toFixed(2)} · aceita ${print.neuralLo.toFixed(2)}–${print.neuralHi.toFixed(2)} · rejeita <${print.neuralReject.toFixed(2)}.`
+      ? `Biometria calibrada · ${protoN} impressões${liveNote} · p05 ${print.selfP05.toFixed(2)} p10 ${print.selfP10.toFixed(2)} · aceita ${print.neuralLo.toFixed(2)}–${print.neuralHi.toFixed(2)} · rejeita <${print.neuralReject.toFixed(2)}.`
       : "Modelo neural ausente — usando timbre/formantes.";
     $("#cal-heard").textContent = `Impressão vocal gravada · ${Math.round(print.pitchLo)}–${Math.round(print.pitchHi)} Hz · formantes ${Math.round(print.f1)}/${Math.round(print.f2)}/${Math.round(print.f3)} Hz. ${neuralNote}`;
     $("#cal-read").hidden = true;

@@ -132,6 +132,7 @@ struct VoicePrintCapture {
     self_p05: f32,
     self_p10: f32,
     self_median: f32,
+    self_live: f32,
 }
 
 #[tauri::command]
@@ -154,13 +155,24 @@ fn voice_print_end_blocking(engine: Engine, speaker: Option<PathBuf>) -> Result<
             self.0.pause_neural(false);
         }
     }
-    let (embed, gallery, neural, neural_lo, neural_hi, neural_reject, self_p05, self_p10, self_median) =
+    let (embed, gallery, neural, neural_lo, neural_hi, neural_reject, self_p05, self_p10, self_median, self_live) =
         match speaker {
             Some(path) => {
                 engine.pause_neural(true);
                 let _resume = ResumeNeural(engine.clone());
                 let wav16 = kamovox_ai::to_16k(&samples, rate);
-                match kamovox_ai::SpeakerEmbedder::load(&path).and_then(|mut e| e.embed_enroll(&wav16)) {
+                match kamovox_ai::SpeakerEmbedder::load(&path).and_then(|mut e| {
+                    let mut r = e.embed_enroll(&wav16)?;
+                    let flat = kamovox_ai::flatten_gallery(&r.gallery);
+                    let mut live = e.replay_live_scores(&samples, rate, &r.embed, &flat);
+                    live.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    r.self_live = if live.is_empty() {
+                        r.self_median
+                    } else {
+                        live[live.len() / 2]
+                    };
+                    Ok(r)
+                }) {
                     Ok(r) => (
                         r.embed,
                         kamovox_ai::flatten_gallery(&r.gallery),
@@ -171,11 +183,12 @@ fn voice_print_end_blocking(engine: Engine, speaker: Option<PathBuf>) -> Result<
                         r.self_p05,
                         r.self_p10,
                         r.self_median,
+                        r.self_live,
                     ),
                     Err(e) => return Err(format!("Biometria neural: {e}")),
                 }
             }
-            None => (Vec::new(), Vec::new(), false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            None => (Vec::new(), Vec::new(), false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         };
     Ok(VoicePrintCapture {
         bands: print.bands.to_vec(),
@@ -196,6 +209,7 @@ fn voice_print_end_blocking(engine: Engine, speaker: Option<PathBuf>) -> Result<
         self_p05,
         self_p10,
         self_median,
+        self_live,
     })
 }
 

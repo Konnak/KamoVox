@@ -8,8 +8,8 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use kamovox_ai::{
-    max_cosine_flat, to_16k, LoadKey, Models, Realtime, SpeakerEmbedder, SpeechBuffer, Stats, Timing,
-    EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS, LIVE_SCORE_MS,
+    max_cosine_flat, prepare_bank, to_16k, LoadKey, Models, Realtime, SpeakerEmbedder, SpeechBuffer,
+    Stats, Timing, EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS, LIVE_SCORE_MS,
 };
 use kamovox_dsp::{Params, Processor};
 use kamovox_link::{alive, now_ms, Link};
@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.26-zero-delay-20261029";
+pub const BUILD_ID: &str = "0.1.27-continuous-pcm-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1196,21 +1196,21 @@ fn neural_loop(
             thread::sleep(Duration::from_millis(8));
             continue;
         }
-        let (centroid, gallery, cfg) = match shared.params.lock() {
+        let (mut centroid, mut gallery, cfg) = match shared.params.lock() {
             Ok(p) if p.voice_gate && p.voice_embed.len() == EMBED_DIM => {
                 (
-                    Some(p.voice_embed.clone()),
+                    p.voice_embed.clone(),
                     p.voice_gallery.clone(),
                     shared.generation.load(Ordering::Relaxed),
                 )
             }
-            _ => (None, Vec::new(), 0),
+            _ => {
+                shared.clear_neural();
+                thread::sleep(Duration::from_millis(8));
+                continue;
+            }
         };
-        let Some(centroid) = centroid else {
-            shared.clear_neural();
-            thread::sleep(Duration::from_millis(8));
-            continue;
-        };
+        prepare_bank(&mut centroid, &mut gallery);
 
         // Sliding ring: score the last ~900 ms every 250 ms. Never freeze on
         // the first hop of an utterance (`scored_utt` used to block infer_id).

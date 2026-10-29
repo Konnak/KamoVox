@@ -22,9 +22,9 @@ pub const EMBED_DIM: usize = 512;
 pub const FIRST_SPEECH_MS: u32 = 280;
 /// Absolute minimum for a short-utterance attempt ("Oi" / "Olá").
 pub const SHORT_SPEECH_MS: u32 = 220;
-/// Ring buffer of compacted active speech for the live worker.
-pub const LIVE_SPEECH_MS: u32 = 1_200;
-/// CAM++ scores the last ~900 ms of that ring (not the whole 1.2 s).
+/// Ring of continuous PCM for the live worker (includes in-utterance dips).
+pub const LIVE_SPEECH_MS: u32 = 1_500;
+/// CAM++ scores the last ~900 ms of that ring.
 pub const LIVE_SCORE_MS: u32 = 900;
 /// How often to refresh the live cosine while speech is active.
 pub const LIVE_PERIOD_MS: u32 = 250;
@@ -32,9 +32,8 @@ pub const LIVE_PERIOD_MS: u32 = 250;
 pub const MAX_PROTOTYPES: usize = 5;
 /// Keep frozen speech after silence so short phrases can still be scored.
 pub const SILENCE_RESET_MS: u32 = 1_600;
-/// Quiet frames shorter than this are holes inside the same utterance.
-/// Freezing/clearing on every 10 ms dip was shredding live embeddings vs enroll.
-pub const SPEECH_HANGOVER_MS: u32 = 350;
+/// Quiet frames shorter than this stay inside the same utterance (consonants).
+pub const SPEECH_HANGOVER_MS: u32 = 300;
 /// Max extra CAM++ templates stored with enrollment (N×512).
 pub const MAX_GALLERY: usize = 12;
 /// Hard cap on ONNX inferences during one enrollment (15 s of speech used to
@@ -66,6 +65,8 @@ pub struct EnrollResult {
     pub self_p05: f32,
     pub self_p10: f32,
     pub self_median: f32,
+    /// Median max-cosine of SpeechBuffer live snapshots vs the new prototypes.
+    pub self_live: f32,
 }
 
 impl SpeakerEmbedder {
@@ -119,31 +120,41 @@ impl SpeakerEmbedder {
         Ok(emb)
     }
 
-    /// Up to 5 L2 prototypes from 800 ms windows + leave-one-out max-cosine
-    /// calibration (same rule as live: `max_i cosine(live, proto[i])`).
+    /// Up to 5 L2 prototypes from **continuous** 800 ms windows + leave-one-out
+    /// max-cosine calibration (same rule as live: `max_i cosine(live, proto[i])`).
     ///
-    /// A single mixed centroid collapsed laughs / thick / thin speech into a
-    /// vector that scored ~0.05 against any one register.
+    /// Windows come from active-speech spans that keep intra-utterance dips
+    /// (the live `SpeechBuffer` path). Splicing 10 ms VAD hops was producing
+    /// live cosines near 0 / negative on the owner's own voice.
     pub fn embed_enroll(&mut self, samples_16k: &[f32]) -> Result<EnrollResult, String> {
-        let speech = compact_speech(samples_16k, SPEAKER_SR);
-        if speech.len() < SPEAKER_SR as usize {
+        if samples_16k.len() < SPEAKER_SR as usize {
             return Err("pouca fala ativa na gravação para biometria neural".into());
         }
-
-        let plan = enroll_windows(speech.len());
+        let spans = active_spans(samples_16k, SPEAKER_SR);
         let mut embeddings = Vec::new();
-        for (a, b) in plan {
-            let end = b.min(speech.len());
-            let start = a.min(end);
-            if end.saturating_sub(start) < MIN_EMBED_SAMPLES {
-                continue;
-            }
-            if let Ok(emb) = self.embed(&speech[start..end]) {
-                embeddings.push(emb);
+        let segs: Vec<&[f32]> = if spans.is_empty() {
+            vec![samples_16k]
+        } else {
+            spans
+                .iter()
+                .map(|&(a, b)| &samples_16k[a..b])
+                .filter(|s| s.len() >= MIN_EMBED_SAMPLES)
+                .collect()
+        };
+        for seg in segs {
+            for (a, b) in enroll_windows(seg.len()) {
+                let end = b.min(seg.len());
+                let start = a.min(end);
+                if end.saturating_sub(start) < MIN_EMBED_SAMPLES {
+                    continue;
+                }
+                if let Ok(emb) = self.embed(&seg[start..end]) {
+                    embeddings.push(emb);
+                }
             }
         }
         if embeddings.is_empty() {
-            embeddings.push(self.embed(&speech)?);
+            embeddings.push(self.embed(samples_16k)?);
         }
 
         let mut scores = Vec::new();
@@ -165,11 +176,9 @@ impl SpeakerEmbedder {
 
         let prototypes = pick_prototypes(&embeddings, MAX_PROTOTYPES);
         let embed = prototypes[0].clone();
-        let gallery = if prototypes.len() > 1 {
-            prototypes[1..].to_vec()
-        } else {
-            Vec::new()
-        };
+        // Store every prototype in the gallery (including proto[0]) so a stale
+        // `voice_embed` cannot leave the live path with an empty bank.
+        let gallery = prototypes.clone();
 
         scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let self_p05 = percentile(&scores, 0.05);
@@ -186,7 +195,51 @@ impl SpeakerEmbedder {
             self_p05,
             self_p10,
             self_median,
+            self_live: self_median,
         })
+    }
+
+    /// Push `pcm` through [`SpeechBuffer`] in 10 ms hops (same as `neural_loop`)
+    /// and score each ~250 ms snapshot against the prototype bank.
+    pub fn replay_live_scores(
+        &mut self,
+        pcm: &[f32],
+        sr: u32,
+        centroid: &[f32],
+        gallery_flat: &[f32],
+    ) -> Vec<f32> {
+        if sr == 0 || pcm.is_empty() {
+            return Vec::new();
+        }
+        let mut buf = SpeechBuffer::new(sr);
+        let hop = (sr as usize / 100).max(80);
+        let win = ((sr as u64 * LIVE_SCORE_MS as u64) / 1000) as usize;
+        let period_hops = (LIVE_PERIOD_MS as usize / 10).max(1);
+        let mut scores = Vec::new();
+        let mut hops = 0usize;
+        for chunk in pcm.chunks(hop) {
+            buf.push(chunk);
+            hops += 1;
+            if scores.len() >= 8 {
+                continue;
+            }
+            if hops % period_hops != 0 {
+                continue;
+            }
+            if buf.speech_ms() < 700.0 {
+                continue;
+            }
+            let snap = buf.snapshot(win);
+            let wav = if sr == SPEAKER_SR {
+                snap
+            } else {
+                to_16k(&snap, sr)
+            };
+            if let Ok(live) = self.embed(&wav) {
+                scores.push(max_cosine_flat(&live, centroid, gallery_flat));
+            }
+        }
+        scores
     }
 }
 
@@ -291,12 +344,20 @@ pub fn max_cosine(live: &[f32], centroid: &[f32], gallery: &[Vec<f32>]) -> f32 {
 /// Same as [`max_cosine`] with a flattened `N×512` gallery (live neural loop).
 pub fn max_cosine_flat(live: &[f32], centroid: &[f32], gallery_flat: &[f32]) -> f32 {
     let mut best = cosine(live, centroid);
-    for chunk in gallery_flat.chunks(EMBED_DIM) {
-        if chunk.len() == EMBED_DIM {
-            best = best.max(cosine(live, chunk));
-        }
+    for chunk in gallery_flat.chunks_exact(EMBED_DIM) {
+        best = best.max(cosine(live, chunk));
     }
     best
+}
+
+/// L2-normalize the centroid and every 512-d gallery slot (JSON round-trip).
+pub fn prepare_bank(centroid: &mut [f32], gallery: &mut [f32]) {
+    if centroid.len() == EMBED_DIM {
+        l2_normalize(centroid);
+    }
+    for chunk in gallery.chunks_exact_mut(EMBED_DIM) {
+        l2_normalize(chunk);
+    }
 }
 
 pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
@@ -340,6 +401,53 @@ fn percentile(sorted: &[f32], p: f32) -> f32 {
     }
     let i = ((sorted.len() as f32 - 1.0) * p.clamp(0.0, 1.0)).round() as usize;
     sorted[i.min(sorted.len() - 1)]
+}
+
+/// Continuous `[start, end)` spans of active speech, **including** intra-utterance
+/// dips shorter than [`SPEECH_HANGOVER_MS`]. Long pauses split spans so an 800 ms
+/// CAM++ window never straddles two phrases glued at a splice.
+pub fn active_spans(samples: &[f32], sr: u32) -> Vec<(usize, usize)> {
+    if samples.is_empty() || sr == 0 {
+        return Vec::new();
+    }
+    let frame = (sr as usize / 100).max(80);
+    let hangover = ((sr as u64 * SPEECH_HANGOVER_MS as u64) / 1000) as usize;
+    let mut energy_ema = 0.0f32;
+    let mut spans = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut silence_run = 0usize;
+    let mut i = 0usize;
+    while i < samples.len() {
+        let end = (i + frame).min(samples.len());
+        let chunk = &samples[i..end];
+        let e = chunk.iter().map(|x| x * x).sum::<f32>() / chunk.len().max(1) as f32;
+        energy_ema = if energy_ema <= 0.0 {
+            e
+        } else {
+            energy_ema * 0.95 + e * 0.05
+        };
+        let thresh = (energy_ema * 0.22).max(1.2e-6);
+        if e >= thresh {
+            if start.is_none() {
+                start = Some(i);
+            }
+            silence_run = 0;
+        } else if start.is_some() {
+            silence_run = silence_run.saturating_add(end - i);
+            if silence_run >= hangover {
+                let s = start.take().unwrap();
+                if end > s {
+                    spans.push((s, end));
+                }
+                silence_run = 0;
+            }
+        }
+        i = end;
+    }
+    if let Some(s) = start {
+        spans.push((s, samples.len()));
+    }
+    spans
 }
 
 /// Keep only frames with speech energy (drops silence that ruins CMVN).
@@ -484,9 +592,10 @@ fn cached_resampler(from: u32) -> Option<&'static crate::resample::Resampler> {
 
 /// Streaming speech accumulator at an arbitrary sample rate.
 ///
-/// Holds a **1.2 s ring** of compacted active speech. On silence the buffer
-/// **freezes** (keeps last utterance) until `SILENCE_RESET_MS` so short
-/// phrases can still be scored after they end.
+/// Holds a **1.5 s ring of continuous PCM** for the current utterance. Quiet
+/// hops shorter than [`SPEECH_HANGOVER_MS`] stay in the ring so CAM++ fbank
+/// sees real time, not 10 ms frames glued at splices. After hangover the
+/// buffer **freezes** until `SILENCE_RESET_MS`.
 pub struct SpeechBuffer {
     sr: u32,
     frame: usize,
@@ -518,6 +627,13 @@ impl SpeechBuffer {
         }
     }
 
+    fn append_continuous(&mut self, frame: &[f32]) {
+        self.speech.extend(frame.iter().copied());
+        while self.speech.len() > self.cap {
+            self.speech.pop_front();
+        }
+    }
+
     pub fn push(&mut self, samples: &[f32]) {
         self.pending.extend_from_slice(samples);
         while self.pending.len() >= self.frame {
@@ -533,25 +649,23 @@ impl SpeechBuffer {
             let reset = ((self.sr as u64 * SILENCE_RESET_MS as u64) / 1000) as usize;
             if e >= thresh {
                 if self.frozen {
-                    // Real pause (≥ hangover) ended → new utterance.
                     self.speech.clear();
                     self.frozen = false;
                     self.utterance_id = self.utterance_id.wrapping_add(1);
                 } else if self.speech.is_empty() {
                     self.utterance_id = self.utterance_id.wrapping_add(1);
                 }
-                // Brief mid-phrase dips never freeze, so we keep appending here.
                 self.silence_run = 0;
-                self.speech.extend(frame);
-                while self.speech.len() > self.cap {
-                    self.speech.pop_front();
+                self.append_continuous(&frame);
+            } else if !self.speech.is_empty() && !self.frozen {
+                // Keep the hole — do not splice 10 ms hops. CAM++ fbank needs time order.
+                self.append_continuous(&frame);
+                self.silence_run = self.silence_run.saturating_add(frame.len());
+                if self.silence_run >= hangover {
+                    self.frozen = true;
                 }
             } else if !self.speech.is_empty() {
                 self.silence_run = self.silence_run.saturating_add(frame.len());
-                // Only freeze after sustained quiet — not on a single soft consonant.
-                if !self.frozen && self.silence_run >= hangover {
-                    self.frozen = true;
-                }
                 if self.silence_run >= reset {
                     self.clear();
                 }
@@ -759,12 +873,42 @@ mod tests {
         assert!(buf.ready_short(), "short oi should be scoreable");
         let utt = buf.utterance_id;
         let n = buf.speech_len();
-        // Push silence — must freeze, not clear immediately.
         buf.push(&vec![0.0f32; sr as usize / 2]);
         assert!(buf.frozen());
         assert_eq!(buf.utterance_id, utt);
-        assert_eq!(buf.speech_len(), n);
+        let hang = (sr as usize * SPEECH_HANGOVER_MS as usize) / 1000;
+        let frame = (sr as usize / 100).max(80);
+        assert!(
+            buf.speech_len() >= n && buf.speech_len() <= n + hang + frame,
+            "hangover PCM should stay in the ring: before={n} after={} hang={hang}",
+            buf.speech_len()
+        );
         assert!(buf.ready_short());
+    }
+
+    #[test]
+    fn speech_buffer_keeps_in_utterance_holes() {
+        let sr = 48_000u32;
+        let a = speech_like(sr, 160.0, 0.30);
+        let hole = vec![1e-5f32; sr as usize * 40 / 1000];
+        let b = speech_like(sr, 160.0, 0.30);
+        let mut pcm = a.clone();
+        pcm.extend_from_slice(&hole);
+        pcm.extend_from_slice(&b);
+        let mut buf = SpeechBuffer::new(sr);
+        let hop = sr as usize / 100;
+        for chunk in pcm.chunks(hop) {
+            buf.push(chunk);
+        }
+        let snap = buf.snapshot(pcm.len());
+        let mid = a.len() + hole.len() / 2;
+        assert!(mid < snap.len(), "snapshot too short ({})", snap.len());
+        assert!(
+            snap[mid].abs() < 1e-3,
+            "10–40 ms hole was spliced out (snap[{mid}]={})",
+            snap[mid]
+        );
+        assert_eq!(buf.utterance_id, 1);
     }
 
     #[test]

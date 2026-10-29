@@ -676,6 +676,15 @@ impl VoiceGate {
         let expressive = laugh || self.express_hops > 0 || self.speech_hops < SHORT_WORD_HOPS;
         let fail_open = (proximity || self.owner_hold_hops > 0) && expressive;
         let energy_spike = speech && rms >= self.level * 1.6 && rms > self.rms_ema * 2.0;
+        let pitch_in_range = frame
+            .pitch
+            .map(|h| h >= self.pitch_lo * 0.90 && h <= self.pitch_hi * 1.10)
+            .unwrap_or(false);
+        let fmatch = formant_score(self.f1, self.f2, self.f3, frame.f1, frame.f2, frame.f3);
+        let dsp_owner = proximity
+            && (pitch_in_range || expressive)
+            && fmatch >= 0.45
+            && frame_alike >= 0.48;
 
         if speech {
             self.speech_hops = self.speech_hops.saturating_add(1);
@@ -690,7 +699,8 @@ impl VoiceGate {
             && long_enough
             && self.fail_streak >= VETO_FAILS
             && self.neural_below()
-            && !fail_open;
+            && !fail_open
+            && !dsp_owner;
         let dsp_veto = !self.neural_enrolled
             && long_enough
             && !proximity
@@ -1439,16 +1449,32 @@ mod tests {
     }
 
     #[test]
-    fn two_low_scores_after_500ms_veto() {
+    fn own_voice_survives_garbage_campplus() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 1.0, true);
         let opened = feed(&mut gate, &voice(sr, 160.0, 0.35), None);
         assert!(opened > 0, "must fail-open before CAM++");
-        let _ = feed(&mut gate, &voice(sr, 160.0, 0.90), Some(0.12));
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.90), Some(0.002));
+        assert!(
+            matches!(gate.state, GateState::Locked | GateState::Holding),
+            "DSP owner must ignore CAM++ 0.002, got {:?}",
+            gate.state
+        );
+    }
+
+    #[test]
+    fn two_low_scores_after_500ms_veto() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 1.0, true);
+        let opened = feed(&mut gate, &voice(sr, 90.0, 0.35), None);
+        assert!(opened > 0, "must fail-open before CAM++");
+        let _ = feed(&mut gate, &voice(sr, 90.0, 0.90), Some(0.12));
         assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
-        let tail = feed(&mut gate, &voice(sr, 160.0, 0.4), Some(0.12));
+        let tail = feed(&mut gate, &voice(sr, 90.0, 0.4), Some(0.12));
         assert_eq!(tail, 0, "veto must stay closed on the same talker");
         assert!(!matches!(gate.state, GateState::Locked | GateState::Holding));
     }
@@ -1459,7 +1485,7 @@ mod tests {
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        let _ = feed(&mut gate, &voice(sr, 160.0, 0.9), Some(0.05));
+        let _ = feed(&mut gate, &voice(sr, 90.0, 0.9), Some(0.05));
         assert_eq!(gate.state, GateState::Rejected);
         let silence = vec![0.0f32; (sr * 0.30) as usize];
         let _ = feed(&mut gate, &silence, None);
@@ -1475,8 +1501,7 @@ mod tests {
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        let quiet: Vec<f32> = voice(sr, 160.0, 0.9).into_iter().map(|x| x * 0.35).collect();
-        let _ = feed(&mut gate, &quiet, Some(0.05));
+        let _ = feed(&mut gate, &voice(sr, 90.0, 0.9), Some(0.05));
         assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
         let loud: Vec<f32> = voice(sr, 160.0, 0.5).into_iter().map(|x| x * 3.0).collect();
         let opened = feed(&mut gate, &loud, Some(0.58));
@@ -1490,10 +1515,10 @@ mod tests {
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.0, false);
-        let _ = feed(&mut gate, &voice(sr, 160.0, 1.0), Some(0.05));
+        let _ = feed(&mut gate, &voice(sr, 90.0, 1.0), Some(0.05));
         assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
         let utt = gate.utterance_id;
-        let leaked = feed(&mut gate, &voice(sr, 160.0, 0.5), Some(0.55));
+        let leaked = feed(&mut gate, &voice(sr, 90.0, 0.5), Some(0.55));
         assert_eq!(leaked, 0, "same-energy impostor reopened");
         assert_ne!(gate.state, GateState::Locked);
         assert_eq!(gate.utterance_id, utt);
@@ -1571,11 +1596,11 @@ mod tests {
         let _ = feed(&mut gate, &voice(sr, 160.0, 0.65), Some(0.55));
         assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
         let base = gate.last_infer_id;
-        for &x in &voice(sr, 160.0, 0.12) {
+        for &x in &voice(sr, 90.0, 0.5) {
             gate.set_neural_scored(Some(0.22), base + 1);
             let _ = gate.process(x, x);
         }
-        for &x in &voice(sr, 160.0, 0.12) {
+        for &x in &voice(sr, 90.0, 0.5) {
             gate.set_neural_scored(Some(0.20), base + 2);
             let _ = gate.process(x, x);
         }
@@ -1600,7 +1625,7 @@ mod tests {
             "0.55 s pause must drop hold, got {:?}",
             gate.state
         );
-        let phrase = voice(sr, 160.0, 0.9);
+        let phrase = voice(sr, 90.0, 0.9);
         let mut late = 0u32;
         let cut = (sr * 0.70) as usize;
         for (i, &x) in phrase.iter().enumerate() {
