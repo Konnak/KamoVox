@@ -77,12 +77,12 @@ impl PitchShifter {
         self.grain = grain;
         self.overlap = overlap;
         self.seek = seek;
-        // Restart the grain stream so heads never straddle two geometries.
-        self.grain_i = 0;
-        self.overlapping = false;
-        if self.primed {
-            self.read_a = self.ideal_target();
-            self.read_b = self.read_a;
+        if self.primed && !self.overlapping {
+            // Crossfade onto the new grain. Assigning read_a here was a click
+            // and made “Voz mais suave” sound like it arrived late.
+            self.place_b();
+            self.overlapping = true;
+            self.grain_i = self.solo();
         }
     }
 
@@ -94,11 +94,8 @@ impl PitchShifter {
     /// The sample stored when `write_abs` became `k` lives at delay `write_abs - k + 1`.
     #[inline]
     fn at_abs(&self, abs: f64) -> f32 {
-        let delay = self.write_abs as f64 - abs + 1.0;
         let max_d = (self.buf.len() - 4) as f64;
-        if !(2.0..max_d).contains(&delay) {
-            return 0.0;
-        }
+        let delay = (self.write_abs as f64 - abs + 1.0).clamp(2.0, (max_d - 1.0).max(2.0));
         let d1 = delay.floor() as usize;
         let t = (delay - d1 as f64) as f32;
         let len = self.buf.len();

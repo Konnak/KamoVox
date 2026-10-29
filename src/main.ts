@@ -371,6 +371,8 @@ const EQ_FACTORY: EqPreset[] = [
   { id: "bright", name: "Brilho", eq: [-1, 0, 0, 0, 0, 1, 2, 3, 4, 3] },
   { id: "warm", name: "Quente", eq: [3, 2, 1, 1, 0, -1, -2, -1, 0, 0] },
   { id: "smooth", name: "Suave", eq: [1, 1, 0, 0, 0, -1, -2, -3, -2, -1] },
+  { id: "natural", name: "Voz natural", eq: [0.5, 0, 1, 0.5, 0, -0.5, -1, -2, -2.5, -1.5] },
+  { id: "dark", name: "Escuro", eq: [1, 0.5, 0, 0, -1, -2, -4, -8, -10, -12] },
   { id: "deess", name: "Menos sibilância", eq: [0, 0, 0, 0, 0, 0, 1, -4, -3, 0] },
   { id: "clarity", name: "Clareza", eq: [-3, -2, 0, 0, 0, 1, 2, 2, 1, 0] },
 ];
@@ -2149,14 +2151,14 @@ function micSoundControls() {
           disabled: !denoiseOk,
           icon: "whisper",
           tone: "tone-teal",
-          help: "O modelo RNNoise tira ventilador e chiado e deixa a fala. Perto de 70–80% a voz continua natural; em 100% pode soar um pouco “de telefone”. Não corta as consoantes (s, f, t).",
+          help: "O modelo sempre limpa no máximo. O percentual mistura esse áudio com o original: 80% = 80% limpo + 20% cru. Não é o portão da Limitação de ruído.",
         },
       )}
       <div class="${p.denoise && denoiseOk ? "" : "disabled"}">
         ${slider({
           id: "denoise-amount",
           label: "Intensidade",
-          hint: "70–80% mantém a voz natural",
+          hint: "Mistura com o original · 80% ainda deixa 20% cru",
           min: 0,
           max: 100,
           step: 1,
@@ -2220,7 +2222,7 @@ function micSoundControls() {
         id: "compress",
         label: "Compressor",
         hint: "Deixa a voz num volume estável",
-        help: "Sílaba baixa sobe um pouco e pico alto desce, para a voz não sumir nem estourar. Em zero, o volume segue o microfone.",
+        help: "Em 100% a razão fica perto de 7:1, ataque de 4 ms e volta de 90 ms. Zero deixa o volume do microfone. Não é um segundo limitador.",
         min: 0,
         max: 100,
         step: 1,
@@ -2232,18 +2234,46 @@ function micSoundControls() {
       })}
       ${
         beta
-          ? switchRow("smooth", "Voz mais suave", p.smooth ? "Estúdio · corpo, de-esser e grão longo" : "Desligado", p.smooth, {
+          ? switchRow("smooth", "Voz mais suave", p.smooth ? "Grão longo · menos emenda no tom" : "Grão curto", p.smooth, {
               icon: "sparkle",
               tone: "tone-purple",
               beta: true,
-              help: "Acabamento de microfone de estúdio: corta rumble em 75 Hz, segura o “S”, dá corpo e uma saturação suave. No tom clássico o grão passa a 2560 amostras com sobreposição Hann de 1024. A voz de IA recebe o acabamento, não o grão.",
+              help: "Só muda o grão do tom clássico (2560 amostras, sobreposição 1024). Não equaliza. Corpo e agudos ficam em Grave, Agudo e no equalizador. A troca entra no próximo bloco de áudio, com crossfade.",
             })
           : ""
       }
       ${slider({
+        id: "bass-shelf",
+        label: "Grave",
+        hint: "0 dB neutro · prateleira em 180 Hz",
+        help: "Sobe ou desce o corpo da voz, separado do equalizador gráfico. 0 dB não altera nada.",
+        min: -30,
+        max: 12,
+        step: 0.5,
+        def: 0,
+        centered: true,
+        format: (v) => signed(v, 1, "dB"),
+        get: () => p.bassDb,
+        set: (v) => (p.bassDb = v),
+      })}
+      ${slider({
+        id: "treble-shelf",
+        label: "Agudo",
+        hint: "0 dB neutro · prateleira em 4 kHz · até −30 dB",
+        help: "Tira ou põe brilho acima de 4 kHz. O gráfico do equalizador só chega a −12 dB; este controle desce até −30 dB. 0 dB é o padrão.",
+        min: -30,
+        max: 12,
+        step: 0.5,
+        def: 0,
+        centered: true,
+        format: (v) => signed(v, 1, "dB"),
+        get: () => p.trebleDb,
+        set: (v) => (p.trebleDb = v),
+      })}
+      ${slider({
         id: "boost",
         label: "Ganho",
-        hint: "Volume do microfone",
+        hint: "100% = volume do microfone · 250% ≈ +8 dB",
         min: 0,
         max: 400,
         step: 1,

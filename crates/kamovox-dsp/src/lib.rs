@@ -618,9 +618,10 @@ impl Processor {
             self.voices = p.voices.iter().map(|&k| VoiceStage::new(self.sr, k)).collect();
         }
 
-        // 38 ms grain, or the studio grain (2560 / 1024 @ 48 kHz) when smooth.
+        // Smooth only lengthens the pitch grain. The hidden studio EQ used to
+        // ride this switch, so “EQ plano” was not actually flat.
         let window_ms = if p.smooth { 44.0 } else { 38.0 };
-        self.polish.set(p.smooth);
+        self.polish.set(false);
         self.tuner.set_window_ms(window_ms);
         for v in &mut self.voices {
             v.set_window_ms(window_ms);
@@ -1153,5 +1154,108 @@ mod tests {
         let mut buf = input.clone();
         proc.process(&mut buf);
         assert_eq!(buf, input);
+    }
+
+    fn voice_bandlimited(sr: f32, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let mut x = 0.0f32;
+                for h in 1..=8 {
+                    let f = 140.0 * h as f32;
+                    if f > 3_500.0 {
+                        break;
+                    }
+                    x += (std::f32::consts::TAU * f * t).sin() / h as f32;
+                }
+                x * 0.12
+            })
+            .collect()
+    }
+
+    fn render(params: Params, input: &[f32]) -> Vec<f32> {
+        let mut proc = Processor::new(48_000);
+        proc.set_params(params);
+        let mut buf = input.to_vec();
+        for chunk in buf.chunks_mut(480) {
+            proc.process(chunk);
+        }
+        buf
+    }
+
+    fn band_rms(buf: &[f32], hp_hz: f32, lp_hz: f32) -> f32 {
+        let mut hp = filters::Biquad::highpass(48_000.0, hp_hz, 0.707);
+        let mut lp = filters::Biquad::lowpass(48_000.0, lp_hz, 0.707);
+        let mut e = 0.0f32;
+        let mut n = 0usize;
+        for &x in buf.iter().skip(16_000) {
+            let y = lp.process(hp.process(x));
+            e += y * y;
+            n += 1;
+        }
+        (e / n.max(1) as f32).sqrt()
+    }
+
+    fn spike_count(buf: &[f32]) -> usize {
+        let mut n = 0usize;
+        let mut prev = 0.0f32;
+        let mut ema = 0.0f32;
+        for &s in buf.iter().skip(20_000) {
+            let d = (s - prev).abs();
+            if ema > 1e-5 && d > ema * 14.0 && d > 0.03 {
+                n += 1;
+            }
+            ema = ema * 0.999 + d * 0.001;
+            prev = s;
+        }
+        n
+    }
+
+    #[test]
+    fn audit_pitch_does_not_invent_clicks_or_highs() {
+        let sr = 48_000.0;
+        let input = voice_bandlimited(sr, sr as usize * 2);
+        let dry_hi = band_rms(&input, 4_000.0, 8_000.0);
+        let dry_mid = band_rms(&input, 400.0, 1_500.0);
+        let pitched = render(Params { pitch: -1.7, ..Params::default() }, &input);
+        let hi = band_rms(&pitched, 4_000.0, 8_000.0);
+        let mid = band_rms(&pitched, 400.0, 1_500.0);
+        let dry_rel = 20.0 * (dry_hi / dry_mid.max(1e-8)).log10();
+        let rel = 20.0 * (hi / mid.max(1e-8)).log10();
+        let spikes = spike_count(&pitched);
+        let zeros = pitched.iter().skip(20_000).filter(|s| s.abs() < 1e-8).count();
+        eprintln!(
+            "AUDIT pitch-only  rel_4k {rel:.1} dB (dry {dry_rel:.1}) spikes {spikes} near-zeros {zeros}"
+        );
+        assert!(spikes < 8, "pitch-only spikes {spikes}");
+        assert!(zeros < 8, "pitch-only dropouts {zeros}");
+        assert!(rel < dry_rel + 6.0, "pitch added highs: {rel:.1} vs dry {dry_rel:.1}");
+
+        let user = render(
+            Params {
+                pitch: -1.7,
+                compress: 1.0,
+                smooth: true,
+                denoise: true,
+                denoise_amount: 0.8,
+                ..Params::default()
+            },
+            &input,
+        );
+        let user_rel = 20.0 * (band_rms(&user, 4_000.0, 8_000.0) / band_rms(&user, 400.0, 1_500.0).max(1e-8)).log10();
+        let user_spikes = spike_count(&user);
+        eprintln!("AUDIT user-chain rel_4k {user_rel:.1} dB spikes {user_spikes}");
+
+        let mut proc = Processor::new(48_000);
+        proc.set_params(Params { pitch: -1.7, ..Params::default() });
+        let mut live = input[..24_000].to_vec();
+        proc.process(&mut live);
+        proc.set_params(Params { pitch: -1.7, smooth: true, ..Params::default() });
+        let mut tail = input[24_000..28_000].to_vec();
+        let before = live[live.len() - 1];
+        proc.process(&mut tail);
+        let jump = (tail[0] - before).abs();
+        eprintln!("AUDIT smooth-toggle first-sample jump {jump:.4}");
+        assert!(jump < 0.08, "smooth toggle clicks ({jump})");
     }
 }
