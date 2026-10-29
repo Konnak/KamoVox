@@ -913,7 +913,11 @@ const $$ = <T extends HTMLElement>(sel: string, root: ParentNode = document) => 
 const content = $("#content");
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch (e) {
+    console.warn("kamovox: não deu para gravar as configurações", e);
+  }
   scheduleTrayState();
   scheduleHotkeys();
 }
@@ -2578,6 +2582,8 @@ function stopCalibration() {
 async function finishVoicePrint() {
   const button = $<HTMLButtonElement>("#cal-start");
   const err = $("#cal-error");
+  button.disabled = true;
+  button.textContent = "Processando…";
   try {
     const print = await invoke<{
       bands: number[];
@@ -2615,7 +2621,8 @@ async function finishVoicePrint() {
     settings.params.voiceNeuralHi = print.neural ? print.neuralHi : 0;
     settings.params.voiceNeuralReject = print.neural ? print.neuralReject : 0;
     settings.params.voiceGate = true;
-    pushParams();
+    save();
+    await invoke("set_params", { params: settings.params });
     const galleryN = Math.floor((settings.params.voiceGallery.length || 0) / 512);
     const neuralNote = print.neural
       ? `Biometria calibrada · ${galleryN} impressões · p05 ${print.selfP05.toFixed(2)} p10 ${print.selfP10.toFixed(2)} · aceita ${print.neuralLo.toFixed(2)}–${print.neuralHi.toFixed(2)} · rejeita <${print.neuralReject.toFixed(2)}.`

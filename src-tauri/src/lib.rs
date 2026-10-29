@@ -135,14 +135,30 @@ struct VoicePrintCapture {
 }
 
 #[tauri::command]
-fn voice_print_end(state: State<AppState>) -> Result<VoicePrintCapture, String> {
-    let (samples, rate) = state.engine.end_calibration();
+async fn voice_print_end(state: State<'_, AppState>) -> Result<VoicePrintCapture, String> {
+    let engine = state.engine.clone();
+    let speaker = state.library.speaker_path();
+    tauri::async_runtime::spawn_blocking(move || voice_print_end_blocking(engine, speaker))
+        .await
+        .map_err(|e| format!("Biometria interrompida: {e}"))?
+}
+
+fn voice_print_end_blocking(engine: Engine, speaker: Option<PathBuf>) -> Result<VoicePrintCapture, String> {
+    let (samples, rate) = engine.end_calibration();
     let print = kamovox_dsp::build_voice_print(&samples, rate as f32).ok_or(
         "Não ouvi voz suficiente. Fale por uns 15 segundos, perto do microfone, no volume normal, com o ambiente em silêncio.",
     )?;
+    struct ResumeNeural(Engine);
+    impl Drop for ResumeNeural {
+        fn drop(&mut self) {
+            self.0.pause_neural(false);
+        }
+    }
     let (embed, gallery, neural, neural_lo, neural_hi, neural_reject, self_p05, self_p10, self_median) =
-        match state.library.speaker_path() {
+        match speaker {
             Some(path) => {
+                engine.pause_neural(true);
+                let _resume = ResumeNeural(engine.clone());
                 let wav16 = kamovox_ai::to_16k(&samples, rate);
                 match kamovox_ai::SpeakerEmbedder::load(&path).and_then(|mut e| e.embed_enroll(&wav16)) {
                     Ok(r) => (

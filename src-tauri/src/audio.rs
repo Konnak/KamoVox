@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.23-voice-eq-20261029";
+pub const BUILD_ID: &str = "0.1.24-enroll-fix-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +183,9 @@ struct Shared {
     neural_infer_ms: AtomicU32,
     /// Last Speaker Gate snapshot for diagnostics.
     gate_snap: Mutex<Option<GateSnapshot>>,
+    /// Enrollment pauses live CAM++ so we do not load a second session mid-run.
+    neural_pause: AtomicBool,
+    neural_busy: AtomicBool,
 }
 
 impl Shared {
@@ -313,6 +316,8 @@ impl Engine {
             neural_infer_id: AtomicU64::new(0),
             neural_infer_ms: AtomicU32::new(0),
             gate_snap: Mutex::new(None),
+            neural_pause: AtomicBool::new(false),
+            neural_busy: AtomicBool::new(false),
         });
         shared.clear_neural();
         let status = Arc::new(Mutex::new(Status::default()));
@@ -386,6 +391,19 @@ impl Engine {
         let samples = self.shared.calib.lock().ok().and_then(|mut slot| slot.take()).unwrap_or_default();
         let rate = self.shared.rate.load(Ordering::Relaxed).max(8_000);
         (samples, rate)
+    }
+
+    /// Pause live CAM++ while enrollment loads its own session (ORT is not happy
+    /// with two `campplus.onnx` sessions inferring at once).
+    pub fn pause_neural(&self, pause: bool) {
+        self.shared.neural_pause.store(pause, Ordering::Release);
+        if !pause {
+            return;
+        }
+        let deadline = std::time::Instant::now() + Duration::from_millis(1500);
+        while self.shared.neural_busy.load(Ordering::Acquire) && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
     }
 
     pub fn levels(&self) -> Levels {
@@ -1173,6 +1191,10 @@ fn neural_loop(
             }
             speech.push(&scratch[..n]);
         }
+        if shared.neural_pause.load(Ordering::Acquire) {
+            thread::sleep(Duration::from_millis(8));
+            continue;
+        }
         if last.elapsed() < period {
             thread::sleep(Duration::from_millis(8));
             continue;
@@ -1207,6 +1229,11 @@ fn neural_loop(
         let utt = speech.utterance_id;
         let window = speech.snapshot(win);
         let t0 = std::time::Instant::now();
+        shared.neural_busy.store(true, Ordering::Release);
+        if shared.neural_pause.load(Ordering::Acquire) {
+            shared.neural_busy.store(false, Ordering::Release);
+            continue;
+        }
         let mut best: Option<(f32, Vec<f32>)> = None;
         let score_one = |e: &mut SpeakerEmbedder, pcm: &[f32], centroid: &[f32], gallery: &[f32]| {
             let wav = to_16k(pcm, sample_rate);
@@ -1227,6 +1254,7 @@ fn neural_loop(
                 }
             }
         }
+        shared.neural_busy.store(false, Ordering::Release);
         match best {
             Some((score, wav_used)) => {
                 let infer_ms = t0.elapsed().as_secs_f32() * 1000.0;
@@ -1239,6 +1267,7 @@ fn neural_loop(
             None => {}
         }
     }
+    shared.neural_busy.store(false, Ordering::Release);
     shared.clear_neural();
 }
 
