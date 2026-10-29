@@ -55,14 +55,21 @@ impl PitchShifter {
         self.step = 2f64.powf(f64::from(semitones.clamp(-24.0, 24.0)) / 12.0);
     }
 
-    /// Default ~38 ms grain / 12 ms overlap. “Voz mais suave” ~44 ms / 15 ms.
-    /// Stays under the ~50 ms Haas double-voice region.
+    /// Default: ~38 ms grain, 16 ms Hann overlap.
+    /// “Voz mais suave” (`ms >= 42`): grain 2560 / overlap 1024 at 48 kHz,
+    /// scaled with the sample rate. The long overlap is what keeps it from doubling.
     pub fn set_window_ms(&mut self, sr: f32, ms: f32) {
         self.sr = sr.max(8_000.0);
-        let grain_ms = ms.clamp(32.0, 48.0);
-        let overlap_ms = if grain_ms >= 42.0 { 15.2 } else { 12.0 };
-        let grain = ((self.sr * grain_ms / 1000.0) as usize).max(1024) & !1;
-        let overlap = ((self.sr * overlap_ms / 1000.0) as usize).clamp(384, grain / 2) & !1;
+        let scale = self.sr / 48_000.0;
+        let (grain, overlap) = if ms >= 42.0 {
+            let grain = ((2560.0 * scale) as usize).max(1024) & !1;
+            let overlap = ((1024.0 * scale) as usize).clamp(256, grain / 2) & !1;
+            (grain, overlap)
+        } else {
+            let grain = ((self.sr * 38.0 / 1000.0) as usize).max(1024) & !1;
+            let overlap = ((768.0 * scale) as usize).clamp(256, grain / 2) & !1;
+            (grain, overlap)
+        };
         let seek = ((self.sr * 0.012) as i32).max(256).min(overlap as i32);
         if grain == self.grain && overlap == self.overlap && seek == self.seek {
             return;
@@ -83,10 +90,11 @@ impl PitchShifter {
         self.grain.saturating_sub(self.overlap).max(1)
     }
 
-    /// Cubic Hermite between the two central samples.
+    /// Catmull-Rom between the two samples around `abs`.
+    /// The sample stored when `write_abs` became `k` lives at delay `write_abs - k + 1`.
     #[inline]
     fn at_abs(&self, abs: f64) -> f32 {
-        let delay = self.write_abs as f64 - abs;
+        let delay = self.write_abs as f64 - abs + 1.0;
         let max_d = (self.buf.len() - 4) as f64;
         if !(2.0..max_d).contains(&delay) {
             return 0.0;
@@ -135,7 +143,29 @@ impl PitchShifter {
         self.primed = true;
     }
 
-    /// Place `read_b` once at overlap start (true cosine @ `step`).
+    /// Normalized correlation of `read_a` against `cand`, both walked at `step`.
+    fn align_score(&self, cand: f64) -> f32 {
+        let mut dot = 0.0f32;
+        let mut na = 0.0f32;
+        let mut nb = 0.0f32;
+        let mut i = 0usize;
+        while i < CORR_LEN {
+            let step_off = (i as f64) * self.step;
+            let a = self.at_abs(self.read_a + step_off);
+            let b = self.at_abs(cand + step_off);
+            dot += a * b;
+            na += a * a;
+            nb += b * b;
+            i += 1;
+        }
+        if nb < 1e-8 {
+            return f32::MIN;
+        }
+        dot / (na.sqrt() * nb.sqrt() + 1e-6)
+    }
+
+    /// Place `read_b` once at overlap start.
+    /// Coarse step of 4 samples, then ±6 at 1 sample so the lock is exact.
     fn place_b(&mut self) {
         let target = self.ideal_target();
         let mut best = target;
@@ -143,44 +173,39 @@ impl PitchShifter {
         let mut off = -self.seek;
         while off <= self.seek {
             let cand = Self::clamp_read(target + f64::from(off), self.write_abs);
-            let mut dot = 0.0f32;
-            let mut na = 0.0f32;
-            let mut nb = 0.0f32;
-            let mut i = 0usize;
-            while i < CORR_LEN {
-                let step_off = (i as f64) * self.step;
-                let a = self.at_abs(self.read_a + step_off);
-                let b = self.at_abs(cand + step_off);
-                dot += a * b;
-                na += a * a;
-                nb += b * b;
-                i += 1;
-            }
-            if nb < 1e-8 {
-                off += 1;
-                continue;
-            }
-            let score = dot / (na.sqrt() * nb.sqrt() + 1e-6);
+            let score = self.align_score(cand);
             if score > best_score {
                 best_score = score;
                 best = cand;
             }
-            off += 1;
+            off += 4;
+        }
+        let mut refine = -6i32;
+        while refine <= 6 {
+            let cand = Self::clamp_read(best + f64::from(refine), self.write_abs);
+            let score = self.align_score(cand);
+            if score > best_score {
+                best_score = score;
+                best = cand;
+            }
+            refine += 1;
         }
         self.read_b = best;
     }
 
-    /// If a head would leave the safe zone mid-grain, recycle at the next ideal
-    /// (avoids the old freeze-clamp that sounded robotic on pitch-up).
+    /// If a head would leave the safe zone, start a Hann crossfade to a new
+    /// lock instead of jumping the read pointer (that jump was a click).
     fn recycle_if_starved(&mut self) {
         let behind = self.write_abs as f64 - self.read_a;
         if behind >= MIN_BEHIND as f64 && behind <= MAX_BEHIND as f64 {
             return;
         }
+        if self.overlapping {
+            return;
+        }
         self.place_b();
-        self.read_a = self.read_b;
-        self.grain_i = 0;
-        self.overlapping = false;
+        self.overlapping = true;
+        self.grain_i = self.solo();
     }
 
     #[inline]
@@ -344,9 +369,25 @@ mod tests {
         let g0 = p.grain;
         let o0 = p.overlap;
         p.set_window_ms(48_000.0, 44.0);
-        assert!(p.grain > g0, "smooth grain {} vs default {g0}", p.grain);
-        assert!(p.overlap > o0, "smooth overlap {} vs default {o0}", p.overlap);
-        assert!(p.grain <= 2304, "grain {} must stay Haas-safe", p.grain);
+        assert_eq!(p.grain, 2560, "studio grain {}", p.grain);
+        assert_eq!(p.overlap, 1024, "studio overlap {}", p.overlap);
+        assert!(p.grain > g0 && p.overlap > o0);
+        assert_eq!(g0, 1824, "default grain {g0}");
+        assert_eq!(o0, 768, "default overlap {o0}");
+    }
+
+    #[test]
+    fn hermite_preserves_a_ramp() {
+        let mut p = PitchShifter::new(48_000.0);
+        for i in 0..4_000 {
+            let _ = p.process(i as f32 * 0.0001);
+        }
+        let abs = p.write_abs as f64 - 200.5;
+        let y = p.at_abs(abs);
+        let newer = (p.write_abs - 201) as f32 * 0.0001;
+        let older = (p.write_abs - 202) as f32 * 0.0001;
+        let mid = 0.5 * (newer + older);
+        assert!((y - mid).abs() < 1e-4, "hermite {y} vs ramp {mid}");
     }
 
     #[test]

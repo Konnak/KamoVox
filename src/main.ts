@@ -2232,11 +2232,11 @@ function micSoundControls() {
       })}
       ${
         beta
-          ? switchRow("smooth", "Voz mais suave", p.smooth ? "Grão ~44 ms · sobreposição 15 ms" : "Grão ~38 ms · atraso baixo", p.smooth, {
+          ? switchRow("smooth", "Voz mais suave", p.smooth ? "Estúdio · corpo, de-esser e grão longo" : "Desligado", p.smooth, {
               icon: "sparkle",
               tone: "tone-purple",
               beta: true,
-              help: "Alonga o grão do tom (38→44 ms) e a sobreposição (12→15 ms). Menos artefato metálico, um pouco mais de atraso. Continua abaixo do eco Haas. A voz de IA não usa este ajuste.",
+              help: "Acabamento de microfone de estúdio: corta rumble em 75 Hz, segura o “S”, dá corpo e uma saturação suave. No tom clássico o grão passa a 2560 amostras com sobreposição Hann de 1024. A voz de IA recebe o acabamento, não o grão.",
             })
           : ""
       }

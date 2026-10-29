@@ -232,6 +232,9 @@ struct Denoiser {
     frame: [f32; DENOISE_FRAME],
     dry: VecDeque<f32>,
     gain: f32,
+    target: f32,
+    attack: f32,
+    release: f32,
     hold: u32,
     amount: f32,
 }
@@ -255,6 +258,9 @@ impl Denoiser {
             frame: [0.0; DENOISE_FRAME],
             dry,
             gain: 1.0,
+            target: 1.0,
+            attack: coef(48_000.0, 5.0),
+            release: coef(48_000.0, 80.0),
             hold: 0,
             amount: 1.0,
         }
@@ -278,18 +284,21 @@ impl Denoiser {
                 } else if self.hold > 0 {
                     self.hold -= 1;
                 }
-                let open = if self.hold > 0 { 1.0 } else { DENOISE_FLOOR + 0.35 * vad };
-                let target = open.max(self.gain * 0.78);
-                let start = self.gain;
-                let step = (target - start) / DENOISE_FRAME as f32;
-                for (i, v) in self.frame.iter().enumerate() {
-                    self.output.push_back(v / 32_767.0 * (start + step * i as f32));
+                self.target = if self.hold > 0 {
+                    1.0
+                } else {
+                    DENOISE_FLOOR + 0.35 * vad
+                };
+                for v in &self.frame {
+                    self.output.push_back(v / 32_767.0);
                 }
-                self.gain = target;
                 self.input.clear();
             }
             let wet = self.output.pop_front().unwrap_or(0.0);
             let dry = self.dry.pop_front().unwrap_or(0.0);
+            let k = if self.target > self.gain { self.attack } else { self.release };
+            self.gain += (self.target - self.gain) * k;
+            let wet = wet * self.gain;
             *s = dry * (1.0 - self.amount) + wet * self.amount;
         }
     }
@@ -391,13 +400,14 @@ impl Compressor {
         let e = self.env.process(x).max(1e-6);
         let thresh = 0.12;
         let ratio = 1.0 + amount * 6.0;
-        let desired = if e > thresh {
+        let compressed = if e > thresh {
             thresh * (e / thresh).powf(1.0 / ratio) / e
-        } else if e > 0.02 {
-            1.0 + amount * 0.55 * (1.0 - e / thresh)
         } else {
             1.0
         };
+        let norm = (e / thresh).clamp(0.0, 1.0);
+        let presence = (e / 0.02).clamp(0.0, 1.0);
+        let desired = compressed + amount * 0.45 * (1.0 - norm) * presence;
         let k = if desired < self.gain { self.attack } else { self.release };
         self.gain += (desired - self.gain) * k;
         (x * self.gain).tanh()
@@ -455,6 +465,80 @@ impl Sfx {
     }
 }
 
+/// Broadcast polish for “Voz mais suave”: HPF, de-esser, body, soft saturation.
+struct StudioPolish {
+    on: bool,
+    hp: Biquad,
+    body: Biquad,
+    nasal: Biquad,
+    presence: Biquad,
+    air: Biquad,
+    ess: Biquad,
+    ess_env: Envelope,
+    full_env: Envelope,
+    duck: f32,
+    duck_atk: f32,
+    duck_rel: f32,
+}
+
+impl StudioPolish {
+    fn new(sr: f32) -> Self {
+        let mut p = Self {
+            on: false,
+            hp: Biquad::identity(),
+            body: Biquad::identity(),
+            nasal: Biquad::identity(),
+            presence: Biquad::identity(),
+            air: Biquad::identity(),
+            ess: Biquad::identity(),
+            ess_env: Envelope::new(sr, 1.5, 40.0),
+            full_env: Envelope::new(sr, 3.0, 50.0),
+            duck: 0.0,
+            duck_atk: coef(sr, 3.0),
+            duck_rel: coef(sr, 45.0),
+        };
+        p.tune(sr);
+        p
+    }
+
+    fn tune(&mut self, sr: f32) {
+        self.hp = Biquad::highpass(sr, 75.0, 0.707);
+        self.body = Biquad::peaking(sr, 160.0, 0.8, 1.5);
+        self.nasal = Biquad::peaking(sr, 450.0, 1.2, -1.5);
+        self.presence = Biquad::peaking(sr, 3_200.0, 0.9, 1.2);
+        self.air = Biquad::lowpass(sr, 14_000.0, 0.707);
+        self.ess = Biquad::bandpass(sr, 6_800.0, 2.2);
+    }
+
+    fn set(&mut self, on: bool) {
+        if on && !self.on {
+            self.duck = 0.0;
+        }
+        self.on = on;
+    }
+
+    fn process(&mut self, x: f32) -> f32 {
+        if !self.on {
+            return x;
+        }
+        let mut y = self.hp.process(x);
+        y = self.body.process(y);
+        y = self.nasal.process(y);
+        y = self.presence.process(y);
+        y = self.air.process(y);
+        let band = self.ess.process(y);
+        let be = self.ess_env.process(band);
+        let fe = self.full_env.process(y);
+        let ratio = be / (fe * 0.42 + 1e-4);
+        let target = ((ratio - 1.15) * 0.45).clamp(0.0, 0.37);
+        let k = if target > self.duck { self.duck_atk } else { self.duck_rel };
+        self.duck += (target - self.duck) * k;
+        y -= band * self.duck;
+        let drive = 0.9;
+        (y * drive).tanh() / drive
+    }
+}
+
 pub struct Processor {
     sr: f32,
     params: Params,
@@ -474,7 +558,9 @@ pub struct Processor {
     compressor: Compressor,
     owner: VoiceGate,
     denoiser: Option<Denoiser>,
+    polish: StudioPolish,
     limiter: f32,
+    limiter_attack: f32,
     limiter_release: f32,
 }
 
@@ -500,7 +586,9 @@ impl Processor {
             compressor: Compressor::new(sr),
             owner: VoiceGate::new(sr),
             denoiser: None,
+            polish: StudioPolish::new(sr),
             limiter: 1.0,
+            limiter_attack: coef(sr, 1.2),
             limiter_release: coef(sr, 150.0),
         };
         p.set_params(Params::default());
@@ -530,8 +618,9 @@ impl Processor {
             self.voices = p.voices.iter().map(|&k| VoiceStage::new(self.sr, k)).collect();
         }
 
-        // Default 38 ms / “Voz mais suave” 44 ms. Never ≥50 ms (Haas double-voice).
+        // 38 ms grain, or the studio grain (2560 / 1024 @ 48 kHz) when smooth.
         let window_ms = if p.smooth { 44.0 } else { 38.0 };
+        self.polish.set(p.smooth);
         self.tuner.set_window_ms(window_ms);
         for v in &mut self.voices {
             v.set_window_ms(window_ms);
@@ -759,7 +848,16 @@ impl Processor {
             return;
         }
         let mix = self.params.vocoder_mix.clamp(0.0, 1.0);
-        let p = &self.params;
+        let chorus = self.params.chorus;
+        let flange = self.params.flange;
+        let bottle = self.params.bottle;
+        let slap = self.params.slap;
+        let echo = self.params.echo;
+        let cave = self.params.cave;
+        let room = self.params.room;
+        let hall = self.params.hall;
+        let ghost = self.params.ghost;
+        let append_original = self.params.append_original;
         let tune = self.tuner.is_active();
 
         for s in buf.iter_mut() {
@@ -773,44 +871,47 @@ impl Processor {
             if let Some(voc) = &mut self.vocoder {
                 y = voc.process(y) * mix + y * (1.0 - mix);
             }
-            if p.chorus {
+            y = self.polish.process(y);
+            if chorus {
                 y = self.sfx.chorus.process(y);
             }
-            if p.flange {
+            if flange {
                 y = self.sfx.flange.process(y);
             }
-            if p.bottle {
+            if bottle {
                 let wet = self.bottle_lp.process(self.bottle_peak.process(self.bottle_bp.process(y)));
                 y = wet * 0.82 + y * 0.18;
             }
-            if p.slap {
+            if slap {
                 y = self.sfx.slap.process(y);
             }
-            if p.echo {
+            if echo {
                 y = self.sfx.echo.process(y);
             }
-            if p.cave {
+            if cave {
                 y = self.sfx.cave_verb.process(self.sfx.cave_echo.process(y));
             }
-            if p.room {
+            if room {
                 y = self.sfx.room.process(y);
             }
-            if p.hall {
+            if hall {
                 y = self.sfx.hall.process(y);
             }
-            if p.ghost {
+            if ghost {
                 y = self.sfx.ghost_verb.process(self.sfx.ghost_flanger.process(y));
             }
-            if p.append_original {
+            if append_original {
                 y = 0.5 * (y + dry);
             }
 
-            let peak = y.abs() * self.limiter;
-            if peak > 0.95 {
-                self.limiter *= 0.95 / peak;
+            let desired = if y.abs() > 0.95 { 0.95 / y.abs() } else { 1.0 };
+            let k = if desired < self.limiter {
+                self.limiter_attack
             } else {
-                self.limiter += (1.0 - self.limiter) * self.limiter_release;
-            }
+                self.limiter_release
+            };
+            self.limiter += (desired - self.limiter) * k;
+            self.limiter = self.limiter.clamp(0.05, 1.0);
             *s = (y * self.limiter).clamp(-1.0, 1.0);
         }
     }
@@ -921,6 +1022,39 @@ mod tests {
         let gain = rms(&buf[24_000..]) / rms(&input[24_000..]);
         assert!(gain > 0.40, "denoise ate the voice ({gain})");
         assert!(buf.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn smooth_polish_changes_a_bright_voice() {
+        let sr = 48_000.0;
+        let n = 48_000;
+        let input: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let body = (std::f32::consts::TAU * 140.0 * t).sin() * 0.2;
+                let ess = (std::f32::consts::TAU * 7_000.0 * t).sin() * 0.08;
+                body + ess
+            })
+            .collect();
+        let run = |smooth: bool| {
+            let mut proc = Processor::new(48_000);
+            proc.set_params(Params { pitch: -1.7, smooth, ..Params::default() });
+            let mut buf = input.clone();
+            for chunk in buf.chunks_mut(480) {
+                proc.process(chunk);
+            }
+            buf
+        };
+        let plain = run(false);
+        let soft = run(true);
+        assert!(plain.iter().all(|v| v.is_finite()) && soft.iter().all(|v| v.is_finite()));
+        let skip = 16_000;
+        let err = plain[skip..]
+            .iter()
+            .zip(&soft[skip..])
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(err > 0.01, "Voz mais suave did not change the signal ({err})");
     }
 
     #[test]
