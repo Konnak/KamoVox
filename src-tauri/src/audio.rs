@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.31-eq-drag-20261029";
+pub const BUILD_ID: &str = "0.1.32-eq-lockfree-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -186,6 +186,9 @@ struct Shared {
     /// Enrollment pauses live CAM++ so we do not load a second session mid-run.
     neural_pause: AtomicBool,
     neural_busy: AtomicBool,
+    /// Graphic EQ gains as f32 bits. The drag path writes these without the params mutex.
+    eq_gen: AtomicU64,
+    eq_bits: [AtomicU32; 10],
 }
 
 impl Shared {
@@ -270,18 +273,51 @@ impl Shared {
     }
 
     /// Applies new params to `proc` when they changed since `seen`, without blocking.
+    /// The params mutex is released before any filter rebuild.
     fn sync(&self, seen: &mut u64, proc: &mut Processor, map: impl Fn(Params) -> Params) {
         let gen = self.generation.load(Ordering::Acquire);
-        if gen != *seen {
-            if let Ok(p) = self.params.try_lock() {
-                if proc.same_except_tone(&p) {
-                    proc.apply_tone(p.bass_db, p.treble_db, p.eq);
-                } else {
-                    proc.set_params(map(p.clone()));
-                }
-                *seen = gen;
-            }
+        if gen == *seen {
+            return;
         }
+        let owned = {
+            let Ok(guard) = self.params.try_lock() else {
+                return;
+            };
+            if proc.same_except_tone(&guard) {
+                let bass = guard.bass_db;
+                let treble = guard.treble_db;
+                let eq = guard.eq;
+                drop(guard);
+                proc.apply_tone(bass, treble, eq);
+                *seen = gen;
+                return;
+            }
+            let cloned = map(guard.clone());
+            drop(guard);
+            cloned
+        };
+        proc.set_params(owned);
+        *seen = gen;
+    }
+
+    fn store_eq(&self, eq: [f32; 10]) {
+        for (slot, value) in self.eq_bits.iter().zip(eq) {
+            slot.store(value.to_bits(), Ordering::Relaxed);
+        }
+        self.eq_gen.fetch_add(1, Ordering::Release);
+    }
+
+    fn pull_eq(&self, proc: &mut Processor, seen: &mut u64) {
+        let gen = self.eq_gen.load(Ordering::Acquire);
+        if gen != *seen {
+            let mut eq = [0f32; 10];
+            for (i, slot) in self.eq_bits.iter().enumerate() {
+                eq[i] = f32::from_bits(slot.load(Ordering::Relaxed));
+            }
+            *seen = gen;
+            proc.set_graphic_target(eq);
+        }
+        proc.approach_graphic_eq();
     }
 }
 
@@ -322,6 +358,8 @@ impl Engine {
             gate_snap: Mutex::new(None),
             neural_pause: AtomicBool::new(false),
             neural_busy: AtomicBool::new(false),
+            eq_gen: AtomicU64::new(0),
+            eq_bits: std::array::from_fn(|_| AtomicU32::new(0)),
         });
         shared.clear_neural();
         let status = Arc::new(Mutex::new(Status::default()));
@@ -369,21 +407,19 @@ impl Engine {
     }
 
     pub fn set_params(&self, params: Params) {
+        self.shared.store_eq(params.eq);
         if let Ok(mut p) = self.shared.params.lock() {
             *p = params;
         }
         self.shared.generation.fetch_add(1, Ordering::AcqRel);
     }
 
-    /// Graphic EQ only. Avoids cloning the voice embeddings on every drag sample.
+    /// Graphic EQ only. Writes lock-free gains and returns without waiting on the audio callback.
     pub fn set_eq(&self, eq: [f32; 10]) {
-        if let Ok(mut p) = self.shared.params.lock() {
-            if p.eq == eq {
-                return;
-            }
+        self.shared.store_eq(eq);
+        if let Ok(mut p) = self.shared.params.try_lock() {
             p.eq = eq;
         }
-        self.shared.generation.fetch_add(1, Ordering::AcqRel);
     }
 
     pub fn set_transpose(&self, semitones: f32) {
@@ -715,6 +751,7 @@ fn open_streams(
     let state = InputState {
         processor,
         seen,
+        eq_seen: 0,
         mono: Vec::with_capacity(8192),
         sink,
         neural: neural_prod,
@@ -1059,6 +1096,7 @@ enum Sink {
 struct InputState {
     processor: Processor,
     seen: u64,
+    eq_seen: u64,
     mono: Vec<f32>,
     sink: Sink,
     neural: Option<HeapProd<f32>>,
@@ -1088,6 +1126,7 @@ impl InputState {
 
     fn run(&mut self) {
         self.shared.sync(&mut self.seen, &mut self.processor, |p| p);
+        self.shared.pull_eq(&mut self.processor, &mut self.eq_seen);
         self.processor
             .set_neural_score(self.shared.neural_score(), self.shared.neural_infer_id());
         store_peak(&self.shared.level_in, peak(&self.mono));

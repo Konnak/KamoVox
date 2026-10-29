@@ -524,33 +524,80 @@ function bindEq() {
   const h = 232;
   const pad = 16;
   const read = document.getElementById("eq-read");
+  const curve = document.getElementById("eq-curve");
+  const area = document.getElementById("eq-area");
+  const circles = [...svg.querySelectorAll("circle")];
+  const xs = EQ_BANDS.map((b) => eqX(b.hz, 720, pad));
   let dragRect: DOMRect | null = null;
-  let frame = 0;
-  const flushEq = () => {
-    void invoke("set_eq", { eq: settings.params.eq.slice() });
+  let eqFlight = false;
+  let eqPending = false;
+  let lastMove = 0;
+  let worstGap = 0;
+  let moves = 0;
+  const curvePath = () => {
+    const ys = settings.params.eq.map((db) => eqY(db, h, pad));
+    let line = `M${xs[0]!.toFixed(1)} ${ys[0]!.toFixed(1)}`;
+    for (let i = 0; i < xs.length - 1; i++) {
+      const p0x = xs[Math.max(0, i - 1)]!;
+      const p0y = ys[Math.max(0, i - 1)]!;
+      const p1x = xs[i]!;
+      const p1y = ys[i]!;
+      const p2x = xs[i + 1]!;
+      const p2y = ys[i + 1]!;
+      const p3x = xs[Math.min(xs.length - 1, i + 2)]!;
+      const p3y = ys[Math.min(ys.length - 1, i + 2)]!;
+      const c1x = p1x + (p2x - p0x) / 6;
+      const c1y = p1y + (p2y - p0y) / 6;
+      const c2x = p2x - (p3x - p1x) / 6;
+      const c2y = p2y - (p3y - p1y) / 6;
+      line += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2x.toFixed(1)} ${p2y.toFixed(1)}`;
+    }
+    return { line, ys };
+  };
+  const paintDrag = () => {
+    const { line, ys } = curvePath();
+    const zero = eqY(0, h, pad);
+    curve?.setAttribute("d", line);
+    area?.setAttribute("d", `${line} L${xs[xs.length - 1]!.toFixed(1)} ${zero} L${xs[0]!.toFixed(1)} ${zero} Z`);
+    const dot = circles[eqDrag];
+    if (dot) {
+      dot.setAttribute("cy", ys[eqDrag]!.toFixed(1));
+      dot.setAttribute("r", "7");
+    }
+  };
+  const pumpEq = () => {
+    if (eqFlight || !eqPending) return;
+    eqPending = false;
+    eqFlight = true;
+    const eq = settings.params.eq.slice();
+    void invoke("set_eq", { eq }).finally(() => {
+      eqFlight = false;
+      if (eqPending) pumpEq();
+    });
   };
   const setFromY = (clientY: number) => {
     if (eqDrag < 0 || !dragRect || dragRect.height <= 0) return;
+    const now = performance.now();
+    if (lastMove) worstGap = Math.max(worstGap, now - lastMove);
+    lastMove = now;
+    moves += 1;
     const y = ((clientY - dragRect.top) / dragRect.height) * h;
     const db = Math.max(-EQ_DB, Math.min(EQ_DB, Math.round((EQ_DB - ((y - pad) / (h - pad * 2)) * (EQ_DB * 2)) * 2) / 2));
     if (settings.params.eq[eqDrag] === db) return;
     settings.params.eq[eqDrag] = db;
-    if (read) read.textContent = `${EQ_BANDS[eqDrag]!.label} Hz · ${signed(db, 1, "dB")}`;
-    if (frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      paintEq();
-      flushEq();
-    });
+    if (read) read.textContent = `${EQ_BANDS[eqDrag]!.label} Hz · ${db > 0 ? "+" : ""}${db.toFixed(1)} dB`;
+    paintDrag();
+    eqPending = true;
+    pumpEq();
   };
   svg.addEventListener("pointerdown", (e) => {
     const ev = e as PointerEvent;
     dragRect = svg.getBoundingClientRect();
-    const x = ((ev.clientX - dragRect.left) / dragRect.width) * 720;
+    const x = ((ev.clientX - dragRect.left) / Math.max(dragRect.width, 1)) * 720;
     let best = 0;
     let dist = Infinity;
-    EQ_BANDS.forEach((b, i) => {
-      const d = Math.abs(x - eqX(b.hz, 720, pad));
+    xs.forEach((bandX, i) => {
+      const d = Math.abs(x - bandX);
       if (d < dist) {
         dist = d;
         best = i;
@@ -561,26 +608,30 @@ function bindEq() {
       return;
     }
     eqDrag = best;
+    lastMove = 0;
+    worstGap = 0;
+    moves = 0;
     svg.setPointerCapture(ev.pointerId);
     if (ev.detail === 2) {
       settings.params.eq[best] = 0;
       paintEq();
-      flushEq();
+      eqPending = true;
+      pumpEq();
       pushParams();
     } else setFromY(ev.clientY);
   });
   svg.addEventListener("pointermove", (e) => setFromY((e as PointerEvent).clientY));
   const end = () => {
     if (eqDrag < 0) return;
-    if (frame) {
-      cancelAnimationFrame(frame);
-      frame = 0;
-    }
+    const gap = worstGap;
+    const n = moves;
     eqDrag = -1;
     dragRect = null;
     paintEq();
-    flushEq();
+    eqPending = true;
+    pumpEq();
     pushParams();
+    console.info(`eq-drag moves=${n} worstGapMs=${gap.toFixed(1)}`);
   };
   svg.addEventListener("pointerup", end);
   svg.addEventListener("pointercancel", end);
@@ -3787,7 +3838,7 @@ async function pollLevels() {
       toast(lv.error);
       syncPower();
     }
-    paintGateDiag(lv.gate ?? null, lv.buildId);
+    if (eqDrag < 0) paintGateDiag(lv.gate ?? null, lv.buildId);
   } catch {
     /* backend busy; next tick retries */
   }

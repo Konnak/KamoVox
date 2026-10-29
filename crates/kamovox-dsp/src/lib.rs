@@ -552,6 +552,8 @@ pub struct Processor {
     bass: Biquad,
     treble: Biquad,
     eq: [Biquad; 10],
+    eq_target: [f32; 10],
+    eq_now: [f32; 10],
     gate: Gate,
     noise_floor: NoiseFloor,
     impact: Impact,
@@ -580,6 +582,8 @@ impl Processor {
             bass: Biquad::identity(),
             treble: Biquad::identity(),
             eq: [Biquad::identity(); 10],
+            eq_target: [0.0; 10],
+            eq_now: [0.0; 10],
             gate: Gate::new(sr),
             noise_floor: NoiseFloor::new(sr),
             impact: Impact::new(sr),
@@ -666,6 +670,28 @@ impl Processor {
         self.retune_tone();
     }
 
+    /// Latest graphic-EQ target. The audio callback slews toward it between blocks.
+    pub fn set_graphic_target(&mut self, eq: [f32; 10]) {
+        self.eq_target = eq;
+    }
+
+    /// Move the live curve part of the way to the target and retune only bands that moved.
+    pub fn approach_graphic_eq(&mut self) {
+        let sr = self.sr;
+        for i in 0..10 {
+            let target = self.eq_target[i];
+            let now = self.eq_now[i];
+            let delta = target - now;
+            let next = if delta.abs() < 0.04 { target } else { now + delta * 0.5 };
+            if (next - now).abs() < 0.001 {
+                continue;
+            }
+            self.eq_now[i] = next;
+            self.params.eq[i] = next;
+            self.eq[i].retune(eq_band(sr, i, next));
+        }
+    }
+
     fn retune_tone(&mut self) {
         let bass = self.params.bass_db;
         let treble = self.params.treble_db;
@@ -673,6 +699,8 @@ impl Processor {
         let sr = self.sr;
         self.bass.retune(Biquad::low_shelf(sr, 180.0, bass.clamp(-30.0, 15.0)));
         self.treble.retune(Biquad::high_shelf(sr, 4_000.0, treble.clamp(-30.0, 15.0)));
+        self.eq_target = eq;
+        self.eq_now = eq;
         for (i, band) in self.eq.iter_mut().enumerate() {
             band.retune(eq_band(sr, i, eq[i]));
         }
@@ -1218,6 +1246,54 @@ mod tests {
         let mut buf = input.clone();
         proc.process(&mut buf);
         assert_eq!(buf, input);
+    }
+
+    #[test]
+    fn graphic_eq_drag_stays_off_the_slow_path() {
+        let mut proc = Processor::new(48_000);
+        let started = std::time::Instant::now();
+        for step in 0..600 {
+            let db = ((step % 49) as f32 - 24.0) * 0.5;
+            let mut eq = [0f32; 10];
+            eq[3] = db.clamp(-12.0, 12.0);
+            proc.set_graphic_target(eq);
+            proc.approach_graphic_eq();
+        }
+        let ms = started.elapsed().as_secs_f32() * 1000.0;
+        assert!(ms < 30.0, "600 EQ updates took {ms:.1} ms");
+    }
+
+    #[test]
+    fn ten_seconds_of_eq_motion_keeps_blocks_short() {
+        let mut proc = Processor::new(48_000);
+        proc.set_params(Params { pitch: -1.7, compress: 1.0, ..Params::default() });
+        let sr = 48_000.0f32;
+        let block = 480usize;
+        let blocks = 1_000usize;
+        let mut phase = 0.0f32;
+        let mut worst_ms = 0.0f32;
+        let started = std::time::Instant::now();
+        for b in 0..blocks {
+            let db = (((b / 2) % 49) as f32 - 24.0) * 0.5;
+            let mut eq = [0.0f32; 10];
+            eq[4] = db.clamp(-12.0, 12.0);
+            proc.set_graphic_target(eq);
+            proc.approach_graphic_eq();
+            let tick = std::time::Instant::now();
+            let mut buf = vec![0.0f32; block];
+            for s in &mut buf {
+                phase += 140.0 / sr;
+                *s = (phase * std::f32::consts::TAU).sin() * 0.2;
+            }
+            proc.process(&mut buf);
+            if b > 40 {
+                worst_ms = worst_ms.max(tick.elapsed().as_secs_f32() * 1000.0);
+            }
+            assert!(buf.iter().all(|v| v.is_finite()), "non-finite audio at block {b}");
+        }
+        let ms = started.elapsed().as_secs_f32() * 1000.0;
+        eprintln!("10s voice+eq drag: {ms:.1} ms total, worst block {worst_ms:.3} ms");
+        assert!(worst_ms < 8.0, "audio block stalled for {worst_ms:.2} ms");
     }
 
     fn voice_bandlimited(sr: f32, n: usize) -> Vec<f32> {
