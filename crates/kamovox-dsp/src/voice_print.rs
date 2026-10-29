@@ -27,7 +27,7 @@ const CENTERS: [f32; PRINT_BANDS] = [
 
 const SILENCE: f32 = 0.00010;
 const SILENCE_EXIT_HOPS: u32 = 25;
-const HOLD_EXIT_HOPS: u32 = 22; // ~440 ms hold for word endings
+const HOLD_EXIT_HOPS: u32 = 100; // ~2.0 s of silence while still authorized (conversation pauses)
 const FOREIGN_EXIT_HOPS: u32 = 18;
 const OPEN_CONFIRM_HOPS: u32 = 8;
 const CANDIDATE_HOPS: u32 = 2;
@@ -244,9 +244,9 @@ impl VoiceGate {
             f2: 1_500.0,
             f3: 2_500.0,
             strict: 0.55,
-            neural_lo: 0.30,
-            neural_hi: 0.48,
-            neural_reject: 0.12,
+            neural_lo: 0.18,
+            neural_hi: 0.40,
+            neural_reject: 0.08,
             neural_enrolled: false,
             protect: true,
             sr,
@@ -336,11 +336,16 @@ impl VoiceGate {
         if infer_id > 0 {
             self.last_infer_id = self.last_infer_id.max(infer_id);
         }
-        if infer_id > self.accept_after {
-            self.neural = score.map(|s| s.clamp(-1.0, 1.0));
-        } else {
-            self.neural = None;
+        if infer_id <= self.accept_after {
+            return;
         }
+        let Some(s) = score.map(|v| v.clamp(-1.0, 1.0)) else {
+            return;
+        };
+        self.neural = Some(match self.neural {
+            Some(prev) => prev * 0.40 + s * 0.60,
+            None => s,
+        });
     }
 
     fn invalidate_neural(&mut self) {
@@ -451,12 +456,12 @@ impl VoiceGate {
         } else {
             (pitch * 0.82, pitch * 1.22)
         };
-        let new_lo = if neural_lo > 0.05 { neural_lo } else { 0.22 };
-        let new_hi = if neural_hi > new_lo { neural_hi.min(0.55) } else { (new_lo + 0.12).min(0.48) };
-        let new_reject = if neural_reject > 0.05 && neural_reject < new_lo {
+        let new_lo = if neural_lo > 0.05 { neural_lo } else { 0.12 };
+        let new_hi = if neural_hi > new_lo { neural_hi.min(0.48) } else { (new_lo + 0.10).min(0.42) };
+        let new_reject = if neural_reject > 0.04 && neural_reject < new_lo {
             neural_reject
         } else {
-            (new_lo - 0.12).clamp(0.08, 0.22)
+            (new_lo - 0.10).clamp(0.05, 0.18)
         };
 
         // Hard reset only when identity / mode / enrollment changes — NOT when
@@ -914,16 +919,15 @@ impl VoiceGate {
                 // do NOT re-open via a fresh neural_ok (that reused scores across
                 // Rejected→Locked on the same utterance id).
                 if self.neural_enrolled && speech_start {
-                    // New phrase after short pause — always new utterance_id.
-                    self.state = GateState::Candidate;
+                    // Session still warm: stay open and re-score in the background.
+                    // Re-muting every pause was the main "às vezes identifica" bug.
+                    self.state = GateState::Locked;
                     self.silence_hops = 0;
                     self.speech_hops = 0;
                     self.verify_hops = 0;
-                    self.confirmed_score = None;
                     self.utterance_id = self.utterance_id.wrapping_add(1);
-                    self.invalidate_neural();
-                    self.reason = 2;
-                    self.mute();
+                    self.reason = 1;
+                    self.open_exact();
                 } else if !self.neural_enrolled && dsp_owner {
                     self.state = GateState::Locked;
                     self.silence_hops = 0;
@@ -1860,5 +1864,44 @@ mod tests {
             "got {:?}",
             gate.state
         );
+    }
+
+    /// After the owner is locked, a conversation pause must NOT mute the next phrase.
+    #[test]
+    fn session_keeps_owner_open_across_pause() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.3, true);
+        let phrase = voice(sr, 160.0, 0.8);
+        for &x in &phrase {
+            gate.set_neural(Some(0.62));
+            let _ = gate.process(x, x);
+        }
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+        let silence = vec![0.0f32; (sr * 0.7) as usize];
+        for &x in &silence {
+            let _ = gate.process(x, x);
+        }
+        assert!(
+            matches!(gate.state, GateState::Locked | GateState::Holding),
+            "pause should keep session, got {:?}",
+            gate.state
+        );
+        let next = voice(sr, 160.0, 1.4);
+        let mut opened = 0u32;
+        for &x in &next {
+            gate.set_neural(Some(0.58));
+            let y = gate.process(x, x);
+            if y.abs() > 1e-4 {
+                opened += 1;
+            }
+        }
+        assert!(
+            matches!(gate.state, GateState::Locked | GateState::Holding),
+            "resume must stay authorized, got {:?}",
+            gate.state
+        );
+        assert!(opened > (sr * 0.08) as u32, "next phrase was muted ({opened} samples)");
     }
 }

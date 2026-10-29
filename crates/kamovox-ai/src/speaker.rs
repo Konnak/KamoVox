@@ -14,19 +14,21 @@ use crate::models::{session_builder, Device};
 
 pub const SPEAKER_SR: u32 = 16_000;
 pub const EMBED_DIM: usize = 512;
-/// Preferred speech before first live score (~400 ms compacted).
-pub const FIRST_SPEECH_MS: u32 = 400;
+/// Preferred speech before first live score.
+pub const FIRST_SPEECH_MS: u32 = 280;
 /// Absolute minimum for a short-utterance attempt ("Oi" / "Olá").
-pub const SHORT_SPEECH_MS: u32 = 280;
+pub const SHORT_SPEECH_MS: u32 = 220;
 /// Sliding window of compacted speech for live scores.
 pub const LIVE_SPEECH_MS: u32 = 1_200;
 /// How often to refresh the live cosine (ms).
-pub const LIVE_PERIOD_MS: u32 = 80;
+pub const LIVE_PERIOD_MS: u32 = 50;
 /// Keep frozen speech after silence so short phrases can still be scored.
-pub const SILENCE_RESET_MS: u32 = 900;
+pub const SILENCE_RESET_MS: u32 = 1_600;
 /// Quiet frames shorter than this are holes inside the same utterance.
 /// Freezing/clearing on every 10 ms dip was shredding live embeddings vs enroll.
-pub const SPEECH_HANGOVER_MS: u32 = 220;
+pub const SPEECH_HANGOVER_MS: u32 = 350;
+/// Max extra CAM++ templates stored with enrollment (N×512).
+pub const MAX_GALLERY: usize = 12;
 
 const MEL_BINS: usize = 80;
 /// Minimum PCM for embedding (~220 ms @ 16 kHz) — short utterances.
@@ -38,10 +40,12 @@ pub struct SpeakerEmbedder {
     output: String,
 }
 
-/// Enrollment centroid + slider calibration from short self-scores.
+/// Enrollment centroid + gallery templates + slider calibration from short self-scores.
 #[derive(Clone, Debug)]
 pub struct EnrollResult {
     pub embed: Vec<f32>,
+    /// Extra templates (each 512-d). Live score = max cosine vs centroid+gallery.
+    pub gallery: Vec<Vec<f32>>,
     /// Cosine at strict=0 (accept owner).
     pub thresh_lo: f32,
     /// Cosine at strict=1 (still passes own voice).
@@ -103,11 +107,10 @@ impl SpeakerEmbedder {
         Ok(emb)
     }
 
-    /// Centroid from speech-only chunks + leave-one-out slider calibration.
+    /// Centroid + short/long gallery + leave-one-out slider calibration.
     ///
-    /// Accept thresholds follow the **short-window** genuine distribution (what
-    /// live CAM++ actually sees). Reject threshold is far below that — a score
-    /// between reject and accept is UNCERTAIN, never CONFIRMED_OTHER.
+    /// Live CAM++ scores a 220–1200 ms window against **max** cosine of the
+    /// gallery (not only the long centroid). Thresholds follow that same rule.
     pub fn embed_enroll(&mut self, samples_16k: &[f32]) -> Result<EnrollResult, String> {
         let speech = compact_speech(samples_16k, SPEAKER_SR);
         if speech.len() < SPEAKER_SR as usize {
@@ -138,8 +141,35 @@ impl SpeakerEmbedder {
         }
         l2_normalize(&mut acc);
 
-        // Leave-one-out on long chunks (stable self scores).
-        let mut long_scores = Vec::new();
+        // Gallery: long chunks + evenly spaced short/medium windows (what live sees).
+        let mut gallery = chunks.clone();
+        for &ms in &[300u32, 400, 500, 700, 900, 1_200] {
+            let n = ((SPEAKER_SR as u64 * ms as u64) / 1000) as usize;
+            if n > speech.len() {
+                continue;
+            }
+            let hop = (n / 2).max(SPEAKER_SR as usize / 8);
+            let mut p = 0;
+            let mut kept = 0u32;
+            while p + n <= speech.len() && kept < 4 {
+                if let Ok(emb) = self.embed(&speech[p..p + n]) {
+                    gallery.push(emb);
+                    kept += 1;
+                }
+                p += hop;
+            }
+        }
+        if gallery.len() > MAX_GALLERY {
+            let step = gallery.len() as f32 / MAX_GALLERY as f32;
+            let picked: Vec<Vec<f32>> = (0..MAX_GALLERY)
+                .map(|i| gallery[(i as f32 * step) as usize].clone())
+                .collect();
+            gallery = picked;
+        }
+
+        // Live-like probes: max cosine vs centroid + gallery that does not
+        // contain the probe itself (long templates only for short probes).
+        let mut scores = Vec::new();
         if chunks.len() >= 2 {
             for i in 0..chunks.len() {
                 let mut cent = vec![0.0f32; EMBED_DIM];
@@ -158,26 +188,26 @@ impl SpeakerEmbedder {
                     *a *= inv;
                 }
                 l2_normalize(&mut cent);
-                long_scores.push(cosine(&cent, &chunks[i]));
+                scores.push(max_cosine(&chunks[i], &cent, &[]));
             }
         }
 
-        // Live-like short probes dominate calibration (this is what FRR was hitting).
-        let mut short_scores = Vec::new();
-        for &ms in &[300u32, 500, 800, 1_000] {
+        for &ms in &[220u32, 300, 400, 500, 700, 900, 1_200] {
             let probe = ((SPEAKER_SR as u64 * ms as u64) / 1000) as usize;
+            if probe > speech.len() {
+                continue;
+            }
             let probe_hop = (probe / 2).max(SPEAKER_SR as usize / 10);
             let mut p = 0;
             while p + probe <= speech.len() {
                 if let Ok(live) = self.embed(&speech[p..p + probe]) {
-                    short_scores.push(cosine(&acc, &live));
+                    // Short probes vs long templates (centroid + 1.5 s chunks).
+                    scores.push(max_cosine(&live, &acc, &chunks));
                 }
                 p += probe_hop;
             }
         }
 
-        let mut scores = short_scores;
-        scores.extend(long_scores.iter().copied());
         if scores.is_empty() {
             scores.push(1.0);
         }
@@ -186,15 +216,14 @@ impl SpeakerEmbedder {
         let self_p10 = percentile(&scores, 0.10);
         let self_median = percentile(&scores, 0.50);
 
-        // NO artificial 0.28 floor — that forced FRR when short genuine windows
-        // landed at 0.22–0.27 (exactly the bug in the user's video at 0%).
-        let thresh_lo = (self_p05 - 0.04).clamp(0.15, 0.42);
-        let thresh_hi = (self_p10 - 0.01).clamp(thresh_lo + 0.06, 0.55);
-        // Confirmed-other only well below the genuine floor.
-        let thresh_reject = (self_p05 - 0.18).clamp(0.08, thresh_lo - 0.06);
+        // Generous owner floor: live short windows of the same voice must pass.
+        let thresh_lo = (self_p05 - 0.08).clamp(0.10, 0.35);
+        let thresh_hi = (self_p10 - 0.02).clamp(thresh_lo + 0.05, 0.48);
+        let thresh_reject = (self_p05 - 0.22).clamp(0.05, thresh_lo - 0.08);
 
         Ok(EnrollResult {
             embed: acc,
+            gallery,
             thresh_lo,
             thresh_hi,
             thresh_reject,
@@ -203,6 +232,40 @@ impl SpeakerEmbedder {
             self_median,
         })
     }
+}
+
+/// Flatten gallery vectors for JSON / Params (`N×512`).
+pub fn flatten_gallery(gallery: &[Vec<f32>]) -> Vec<f32> {
+    let mut out = Vec::with_capacity(gallery.len() * EMBED_DIM);
+    for g in gallery {
+        if g.len() == EMBED_DIM {
+            out.extend_from_slice(g);
+        }
+    }
+    out.truncate(MAX_GALLERY * EMBED_DIM);
+    out
+}
+
+/// Highest cosine of `live` against the centroid and every 512-d gallery slot.
+pub fn max_cosine(live: &[f32], centroid: &[f32], gallery: &[Vec<f32>]) -> f32 {
+    let mut best = cosine(live, centroid);
+    for g in gallery {
+        if g.len() == EMBED_DIM {
+            best = best.max(cosine(live, g));
+        }
+    }
+    best
+}
+
+/// Same as [`max_cosine`] with a flattened `N×512` gallery (live neural loop).
+pub fn max_cosine_flat(live: &[f32], centroid: &[f32], gallery_flat: &[f32]) -> f32 {
+    let mut best = cosine(live, centroid);
+    for chunk in gallery_flat.chunks(EMBED_DIM) {
+        if chunk.len() == EMBED_DIM {
+            best = best.max(cosine(live, chunk));
+        }
+    }
+    best
 }
 
 pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
@@ -223,8 +286,8 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 /// Map UI strict 0..1 onto enrolled cosine thresholds.
 pub fn thresh_for_strict(strict: f32, lo: f32, hi: f32) -> f32 {
-    let lo = if lo > 0.05 { lo } else { 0.18 };
-    let hi = if hi > lo { hi.min(0.55) } else { (lo + 0.12).min(0.48) };
+    let lo = if lo > 0.05 { lo } else { 0.12 };
+    let hi = if hi > lo { hi.min(0.48) } else { (lo + 0.10).min(0.42) };
     lo + strict.clamp(0.0, 1.0) * (hi - lo)
 }
 
@@ -390,7 +453,7 @@ impl SpeechBuffer {
             } else {
                 self.energy_ema * 0.95 + e * 0.05
             };
-            let thresh = (self.energy_ema * 0.35).max(2e-6);
+            let thresh = (self.energy_ema * 0.22).max(1.2e-6);
             let hangover = ((self.sr as u64 * SPEECH_HANGOVER_MS as u64) / 1000) as usize;
             let reset = ((self.sr as u64 * SILENCE_RESET_MS as u64) / 1000) as usize;
             if e >= thresh {
@@ -474,6 +537,24 @@ mod tests {
     }
 
     #[test]
+    fn max_cosine_flat_picks_best_template() {
+        let live512 = {
+            let mut v = vec![0.0f32; 512];
+            v[0] = 1.0;
+            v
+        };
+        let cent512 = {
+            let mut v = vec![0.0f32; 512];
+            v[1] = 1.0;
+            v
+        };
+        let mut gal = vec![0.0f32; 1024];
+        gal[512] = 1.0;
+        let s = max_cosine_flat(&live512, &cent512, &gal);
+        assert!((s - 1.0).abs() < 1e-5, "best template cosine {s}");
+    }
+
+    #[test]
     fn fbank_produces_frames() {
         let sr = SPEAKER_SR;
         let n = sr as usize;
@@ -548,7 +629,7 @@ mod tests {
         buf.push(&speech_like(sr, 160.0, 0.3));
         let first = buf.utterance_id;
         // Must exceed SPEECH_HANGOVER_MS to freeze, then resume = new utt.
-        buf.push(&vec![0.0f32; sr as usize * 3 / 10]);
+        buf.push(&vec![0.0f32; sr as usize * 45 / 100]);
         assert!(buf.frozen());
         buf.push(&speech_like(sr, 160.0, 0.3));
         assert!(!buf.frozen());
@@ -706,7 +787,7 @@ mod tests {
         );
         assert!(result.self_p10 > 0.20, "self_p10 {}", result.self_p10);
         assert!(result.thresh_hi <= 0.55);
-        assert!(result.thresh_lo >= 0.15);
+        assert!(result.thresh_lo >= 0.08);
         assert!(result.thresh_reject < result.thresh_lo);
         assert!(result.thresh_lo < result.thresh_hi);
 

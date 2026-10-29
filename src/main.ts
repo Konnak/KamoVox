@@ -55,6 +55,8 @@ interface Params {
   voiceF3: number;
   /** CAM++ enrollment embedding (512). Empty = DSP-only gate. */
   voiceEmbed: number[];
+  /** Extra CAM++ templates (N×512). Live score uses the best match. */
+  voiceGallery: number[];
   /** Calibrated cosine thresholds (strict 0 → lo, strict 1 → hi). */
   voiceNeuralLo: number;
   voiceNeuralHi: number;
@@ -143,6 +145,14 @@ interface Settings {
   usedMs: number;
   /** Measured speaking pitch from automatic calibration, in Hz. */
   calibration: { hz: number } | null;
+  /** User-saved graphic-EQ curves. */
+  eqPresets: EqPreset[];
+}
+
+interface EqPreset {
+  id: string;
+  name: string;
+  eq: number[];
 }
 
 interface Endpoint {
@@ -297,12 +307,12 @@ const defaultParams = (): Params => ({
   sensitivityDb: -90,
   bassDb: 0,
   trebleDb: 0,
-  denoiseAmount: 1,
+  denoiseAmount: 0.75,
   noiseFloor: 0,
   impact: 0,
   compress: 0,
   voiceGate: false,
-  voiceStrict: 0.5,
+  voiceStrict: 0.35,
   voiceBands: Array(12).fill(0),
   voicePitch: 0,
   voicePitchLo: 0,
@@ -312,6 +322,7 @@ const defaultParams = (): Params => ({
   voiceF2: 0,
   voiceF3: 0,
   voiceEmbed: [],
+  voiceGallery: [],
   voiceNeuralLo: 0,
   voiceNeuralHi: 0,
   voiceNeuralReject: 0,
@@ -348,6 +359,46 @@ const EQ_GROUPS = [
   { name: "Médio agudo", from: 2500, to: 6000 },
   { name: "Agudo", from: 6000, to: 16000 },
 ];
+const EQ_FACTORY: EqPreset[] = [
+  { id: "flat", name: "Plano", eq: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  { id: "voice", name: "Voz", eq: [-2, -1, 0, 1, 2, 3, 2, 1, 0, -1] },
+  { id: "podcast", name: "Podcast", eq: [-4, -3, -1, 1, 2, 3, 2, 0, -1, -2] },
+  { id: "radio", name: "Rádio", eq: [-3, -1, 1, 2, 0, -1, 2, 3, 1, 0] },
+  { id: "phone", name: "Telefone", eq: [-8, -6, -2, 3, 4, 3, 2, -2, -6, -8] },
+  { id: "bass", name: "Grave", eq: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0] },
+  { id: "presence", name: "Presença", eq: [0, 0, 0, 0, 1, 3, 4, 2, 0, 0] },
+  { id: "vocal", name: "Vocal", eq: [-1, 0, 1, 2, 1, 2, 3, 1, 0, -1] },
+  { id: "bright", name: "Brilho", eq: [-1, 0, 0, 0, 0, 1, 2, 3, 4, 3] },
+  { id: "warm", name: "Quente", eq: [3, 2, 1, 1, 0, -1, -2, -1, 0, 0] },
+  { id: "smooth", name: "Suave", eq: [1, 1, 0, 0, 0, -1, -2, -3, -2, -1] },
+  { id: "deess", name: "Menos sibilância", eq: [0, 0, 0, 0, 0, 0, 1, -4, -3, 0] },
+  { id: "clarity", name: "Clareza", eq: [-3, -2, 0, 0, 0, 1, 2, 2, 1, 0] },
+];
+const EQ_TOOLS: { id: string; name: string; add: number[] }[] = [
+  { id: "more-bass", name: "+ Grave", add: [2.5, 2, 1.5, 0.5, 0, 0, 0, 0, 0, 0] },
+  { id: "more-presence", name: "+ Presença", add: [0, 0, 0, 0, 0.5, 1.5, 2, 1, 0, 0] },
+  { id: "more-air", name: "+ Brilho", add: [0, 0, 0, 0, 0, 0, 0.5, 1.5, 2, 1.5] },
+  { id: "less-ess", name: "− Sibilância", add: [0, 0, 0, 0, 0, 0, 0, -2.5, -2, 0] },
+  { id: "less-rumble", name: "− Rumble", add: [-3, -2.5, -1, 0, 0, 0, 0, 0, 0, 0] },
+];
+
+function clampEqBand(v: number) {
+  return Math.max(-EQ_DB, Math.min(EQ_DB, Math.round(v * 2) / 2));
+}
+
+function eqCurvesClose(a: number[], b: number[]) {
+  if (a.length !== b.length) return false;
+  return a.every((v, i) => Math.abs(v - (b[i] ?? 0)) < 0.26);
+}
+
+function allEqPresets(): EqPreset[] {
+  return [...EQ_FACTORY, ...settings.eqPresets];
+}
+
+function currentEqPresetId(): string | null {
+  const eq = settings.params.eq;
+  return allEqPresets().find((p) => eqCurvesClose(eq, p.eq))?.id ?? null;
+}
 const EQ_MIN_HZ = 20;
 const EQ_MAX_HZ = 16000;
 const EQ_DB = 12;
@@ -363,8 +414,11 @@ function eqY(db: number, height: number, pad: number) {
 }
 
 function eqSummary() {
+  const id = currentEqPresetId();
+  const named = allEqPresets().find((p) => p.id === id);
+  if (named && named.id !== "flat") return named.name;
   const n = settings.params.eq.filter((v) => Math.abs(v) >= 0.25).length;
-  if (!n) return "Sem alteração";
+  if (!n) return "Plano";
   return n === 1 ? "1 faixa" : `${n} faixas`;
 }
 
@@ -384,8 +438,20 @@ function eqMarkup() {
     return `<span style="left:${(x1 / w) * 100}%;width:${((x2 - x1) / w) * 100}%">${g.name}</span>`;
   }).join("");
   const freqs = EQ_BANDS.map((b) => `<span style="left:${(eqX(b.hz, w, pad) / w) * 100}%">${b.label}</span>`).join("");
+  const active = currentEqPresetId();
+  const chips = allEqPresets()
+    .map((p) => {
+      const user = !EQ_FACTORY.some((f) => f.id === p.id);
+      return `<button type="button" class="chip ${p.id === active ? "active" : ""}" data-eq-preset="${esc(p.id)}">${esc(p.name)}${
+        user ? `<span class="chip-x" data-eq-del="${esc(p.id)}" title="Excluir">×</span>` : ""
+      }</button>`;
+    })
+    .join("");
+  const tools = EQ_TOOLS.map((t) => `<button type="button" class="chip" data-eq-tool="${t.id}">${esc(t.name)}</button>`).join("");
   return `<div class="eq">
     <div class="eq-top"><span>Curva do microfone</span><button type="button" class="link" id="eq-reset">${icon("reset")}Zerar</button></div>
+    <div class="eq-presets chips" role="list">${chips}</div>
+    <div class="eq-tools chips">${tools}</div>
     <div class="eq-groups">${groups}</div>
     <svg id="eq-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="Equalizador gráfico">
       ${grids}
@@ -395,6 +461,9 @@ function eqMarkup() {
     </svg>
     <div class="eq-freqs">${freqs}</div>
     <p class="eq-read" id="eq-read">Arraste um ponto. O ganho vai de −12 a +12 dB.</p>
+    <div class="eq-save-row">
+      <button type="button" class="btn" id="eq-save">${icon("save")}Salvar pré-definição</button>
+    </div>
   </div>`;
 }
 
@@ -486,7 +555,73 @@ function bindEq() {
     $("#eq-read").textContent = "Arraste um ponto. O ganho vai de −12 a +12 dB.";
     paintEq();
     pushParams();
+    rerender();
   });
+  $$<HTMLButtonElement>("[data-eq-preset]", content).forEach((b) =>
+    b.addEventListener("click", (e) => {
+      const del = (e.target as HTMLElement).closest("[data-eq-del]");
+      if (del) {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = (del as HTMLElement).dataset.eqDel!;
+        const pr = settings.eqPresets.find((p) => p.id === id);
+        if (!pr) return;
+        confirmSheet(`Excluir “${pr.name}”?`, "A curva atual do equalizador não muda.", "Excluir", () => {
+          settings.eqPresets = settings.eqPresets.filter((p) => p.id !== id);
+          save();
+          rerender();
+          toast(`Pré-definição “${pr.name}” excluída`);
+        });
+        return;
+      }
+      const id = b.dataset.eqPreset!;
+      const pr = allEqPresets().find((p) => p.id === id);
+      if (!pr) return;
+      settings.params.eq = pr.eq.slice();
+      settings.params.bassDb = 0;
+      settings.params.trebleDb = 0;
+      $("#eq-read").textContent = `${pr.name}`;
+      paintEq();
+      pushParams();
+      rerender();
+    }),
+  );
+  $$<HTMLButtonElement>("[data-eq-tool]", content).forEach((b) =>
+    b.addEventListener("click", () => {
+      const tool = EQ_TOOLS.find((t) => t.id === b.dataset.eqTool);
+      if (!tool) return;
+      settings.params.eq = settings.params.eq.map((v, i) => clampEqBand(v + (tool.add[i] ?? 0)));
+      $("#eq-read").textContent = tool.name;
+      paintEq();
+      pushParams();
+      rerender();
+    }),
+  );
+  $("#eq-save")?.addEventListener("click", openEqPresetSheet);
+}
+
+function openEqPresetSheet() {
+  openSheet(`
+    <h3>Salvar equalizador</h3>
+    <p>A curva atual vira uma pré-definição só sua, neste computador.</p>
+    <input type="text" id="eq-preset-name" placeholder="Nome da pré-definição" maxlength="32" />
+    <button class="btn block" id="eq-preset-save">Salvar</button>`);
+  const input = $<HTMLInputElement>("#eq-preset-name");
+  setTimeout(() => input.focus(), 250);
+  const submit = () => {
+    const name = input.value.trim();
+    if (!name) return input.focus();
+    const eq = settings.params.eq.slice();
+    const existing = settings.eqPresets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (existing >= 0) settings.eqPresets[existing] = { ...settings.eqPresets[existing]!, name, eq };
+    else settings.eqPresets.push({ id: `eq-${Date.now().toString(36)}`, name, eq });
+    save();
+    closeSheet();
+    rerender();
+    toast(`Pré-definição “${name}” salva`);
+  };
+  $("#eq-preset-save").addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => e.key === "Enter" && submit());
 }
 
 const CATEGORIES = [
@@ -656,11 +791,11 @@ function cleanParams(raw: Partial<Params> & { customPitch?: number }): Params {
     const n = Number(v);
     return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
   };
-  p.denoiseAmount = unit(raw.denoiseAmount, 1);
+  p.denoiseAmount = unit(raw.denoiseAmount, 0.75);
   p.noiseFloor = unit(raw.noiseFloor, 0);
   p.impact = unit(raw.impact, 0);
   p.compress = unit(raw.compress, 0);
-  p.voiceStrict = unit(raw.voiceStrict, 0.5);
+  p.voiceStrict = unit(raw.voiceStrict, 0.35);
   p.voiceGate = raw.voiceGate === true;
   const bands = Array.isArray(raw.voiceBands) ? raw.voiceBands.slice(0, 12).map((v) => Number(v) || 0) : [];
   while (bands.length < 12) bands.push(0);
@@ -676,6 +811,10 @@ function cleanParams(raw: Partial<Params> & { customPitch?: number }): Params {
     ? raw.voiceEmbed.map((v) => Number(v)).filter((v) => Number.isFinite(v))
     : [];
   p.voiceEmbed = embed.length === 512 ? embed : [];
+  const gallery = Array.isArray(raw.voiceGallery)
+    ? raw.voiceGallery.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+    : [];
+  p.voiceGallery = gallery.length >= 512 && gallery.length % 512 === 0 ? gallery.slice(0, 12 * 512) : [];
   p.voiceNeuralLo = Number(raw.voiceNeuralLo) > 0.05 ? Number(raw.voiceNeuralLo) : 0;
   p.voiceNeuralHi = Number(raw.voiceNeuralHi) > p.voiceNeuralLo ? Number(raw.voiceNeuralHi) : 0;
   p.voiceNeuralReject =
@@ -711,6 +850,7 @@ function loadSettings(): Settings {
     supportAt: 0,
     usedMs: 0,
     calibration: null,
+    eqPresets: [],
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -736,6 +876,15 @@ function loadSettings(): Settings {
     }
     s.usedMs = typeof saved.usedMs === "number" && saved.usedMs > 0 ? saved.usedMs : 0;
     s.calibration = typeof saved.calibration?.hz === "number" && saved.calibration.hz > 50 ? { hz: saved.calibration.hz } : null;
+    s.eqPresets = Array.isArray(saved.eqPresets)
+      ? saved.eqPresets
+          .filter((p) => p && typeof p.name === "string" && Array.isArray(p.eq))
+          .map((p, i) => ({
+            id: typeof p.id === "string" && p.id ? p.id : `eq-saved-${i}`,
+            name: p.name.trim().slice(0, 32) || `Curva ${i + 1}`,
+            eq: p.eq.slice(0, 10).map((v) => clampEqBand(Number(v) || 0)).concat(Array(10).fill(0)).slice(0, 10),
+          }))
+      : [];
     s.page = MOVED_PAGES[s.page] ?? s.page;
     if (s.page !== "ai" && !NAV.some((n) => n.id === s.page)) s.page = "voices";
     return s;
@@ -1068,7 +1217,7 @@ const pitchSlider = (hint?: string): SliderDef => ({
   id: "pitch",
   label: "Tom",
   hint,
-  help: "Deixa a voz mais grave ou mais aguda, em semitons (processamento no domínio do tempo, estilo WSOLA). Em 0 o tom original passa intacto. Use − e + para 0,1.",
+  help: "Deixa a voz mais grave ou mais aguda, em semitons. O deslocamento é no domínio do tempo (WSOLA com interpolação cúbica), como o Clownfish em shifts pequenos. Em 0 o tom original passa intacto. Use − e + para 0,1.",
   min: -24,
   max: 24,
   step: 0.1,
@@ -1900,7 +2049,7 @@ function micSoundControls() {
   const voiceGateBlock = beta
     ? `
     <h2>Só a minha voz ${betaTag()}</h2>
-    <p class="section-hint">Modo Protegido confirma a identidade antes de transmitir (~0,6 s). Modo Rápido pode abrir antes (maior risco de vazar outra voz).</p>
+    <p class="section-hint">Depois da primeira confirmação, a sua voz continua aberta entre as frases. Regrave nesta versão — a biometria agora guarda várias impressões (curtas e longas).</p>
     <div class="group">
       ${switchRow("voice-gate", "Usar só a minha voz", p.voicePitch > 0
         ? (p.voiceEmbed.length === 512
@@ -1912,10 +2061,10 @@ function micSoundControls() {
         icon: "voices",
         tone: "tone-teal",
         beta: true,
-        help: "Protegido: CAM++ decide antes do áudio sair (sem vazamento provisório). Rápido: menor atraso, pode vazar o início de outra voz. Áudio autorizado sai bit a bit igual ao microfone.",
+        help: "Na primeira frase o modo Protegido espera a biometria (~0,4 s) para não vazar outra voz. Depois disso a sessão fica aberta nas pausas da conversa e só fecha se aparecer outra pessoa de verdade. Regrave a voz nesta versão.",
       })}
       <div class="row">
-        <div class="label"><span class="title">Gravação</span><small>Fale ~15 s · regrave após esta atualização (calibração nova: aceitar ≠ rejeitar)</small></div>
+        <div class="label"><span class="title">Gravação</span><small>Fale ~15 s perto do mic · regrave nesta versão (galeria curta+longa)</small></div>
         <button type="button" class="btn" id="voice-print">${icon("mic")}Gravar minha voz</button>
       </div>
       <div class="${p.voicePitch > 0 && p.voiceEmbed.length === 512 ? "" : "disabled"}">
@@ -1936,12 +2085,12 @@ function micSoundControls() {
         ${slider({
           id: "voice-strict",
           label: "Exigência da biometria",
-          hint: "Calibrada na gravação — 0% já rejeita bem terceiros típicos",
-          help: "0% = thresh baixo calibrado; 100% = próximo do seu p10. Regrave se mudar de microfone. Pode haver falsa rejeição em 100% se falar muito diferente da gravação.",
+          hint: "Calibrada na gravação — deixe baixo se a sua voz às vezes some",
+          help: "0% aceita a sua voz com folga. 100% é mais rígido contra outras pessoas. Regrave se mudar de microfone ou de sala.",
           min: 0,
           max: 100,
           step: 1,
-          def: 55,
+          def: 35,
           stepper: true,
           format: percent,
           get: () => Math.round(p.voiceStrict * 100),
@@ -1989,18 +2138,18 @@ function micSoundControls() {
           disabled: !denoiseOk,
           icon: "whisper",
           tone: "tone-teal",
-          help: "Um modelo de voz (RNNoise) separa a fala do resto. Quanto maior a intensidade, mais o microfone original é trocado pela voz limpa. Acrescenta cerca de 10 ms.",
+          help: "O modelo RNNoise tira ventilador e chiado e deixa a fala. Perto de 70–80% a voz continua natural; em 100% pode soar um pouco “de telefone”. Não corta as consoantes (s, f, t).",
         },
       )}
       <div class="${p.denoise && denoiseOk ? "" : "disabled"}">
         ${slider({
           id: "denoise-amount",
           label: "Intensidade",
-          hint: "Mistura da voz limpa",
+          hint: "70–80% mantém a voz natural",
           min: 0,
           max: 100,
           step: 1,
-          def: 100,
+          def: 75,
           stepper: true,
           format: percent,
           get: () => Math.round(p.denoiseAmount * 100),
@@ -2072,11 +2221,11 @@ function micSoundControls() {
       })}
       ${
         beta
-          ? switchRow("smooth", "Voz mais suave", "Grão WSOLA ~42 ms (padrão 38 ms)", p.smooth, {
+          ? switchRow("smooth", "Voz mais suave", p.smooth ? "Grão ~44 ms · sobreposição 15 ms" : "Grão ~38 ms · atraso baixo", p.smooth, {
               icon: "sparkle",
               tone: "tone-purple",
               beta: true,
-              help: "Usa o grão um pouco mais longo do WSOLA (38→42 ms), ainda abaixo do limiar de eco Haas. A voz de IA não usa este ajuste.",
+              help: "Alonga o grão do tom (38→44 ms) e a sobreposição (12→15 ms). Menos artefato metálico, um pouco mais de atraso. Continua abaixo do eco Haas. A voz de IA não usa este ajuste.",
             })
           : ""
       }
@@ -2440,6 +2589,7 @@ async function finishVoicePrint() {
       f2: number;
       f3: number;
       embed: number[];
+      gallery: number[];
       neural: boolean;
       neuralLo: number;
       neuralHi: number;
@@ -2457,13 +2607,18 @@ async function finishVoicePrint() {
     settings.params.voiceF2 = print.f2;
     settings.params.voiceF3 = print.f3;
     settings.params.voiceEmbed = print.neural && print.embed?.length === 512 ? print.embed : [];
+    settings.params.voiceGallery =
+      print.neural && Array.isArray(print.gallery) && print.gallery.length >= 512 && print.gallery.length % 512 === 0
+        ? print.gallery.slice(0, 12 * 512)
+        : [];
     settings.params.voiceNeuralLo = print.neural ? print.neuralLo : 0;
     settings.params.voiceNeuralHi = print.neural ? print.neuralHi : 0;
     settings.params.voiceNeuralReject = print.neural ? print.neuralReject : 0;
     settings.params.voiceGate = true;
     pushParams();
+    const galleryN = Math.floor((settings.params.voiceGallery.length || 0) / 512);
     const neuralNote = print.neural
-      ? `Biometria calibrada · p05 ${print.selfP05.toFixed(2)} p10 ${print.selfP10.toFixed(2)} · aceita ${print.neuralLo.toFixed(2)}–${print.neuralHi.toFixed(2)} · rejeita <${print.neuralReject.toFixed(2)}.`
+      ? `Biometria calibrada · ${galleryN} impressões · p05 ${print.selfP05.toFixed(2)} p10 ${print.selfP10.toFixed(2)} · aceita ${print.neuralLo.toFixed(2)}–${print.neuralHi.toFixed(2)} · rejeita <${print.neuralReject.toFixed(2)}.`
       : "Modelo neural ausente — usando timbre/formantes.";
     $("#cal-heard").textContent = `Impressão vocal gravada · ${Math.round(print.pitchLo)}–${Math.round(print.pitchHi)} Hz · formantes ${Math.round(print.f1)}/${Math.round(print.f2)}/${Math.round(print.f3)} Hz. ${neuralNote}`;
     $("#cal-read").hidden = true;
@@ -2856,7 +3011,7 @@ function renderMic() {
     btn.textContent = "Pressione…";
     btn.classList.add("arm");
     const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
+    e.preventDefault();
       e.stopPropagation();
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
       window.removeEventListener("keydown", onKey, true);

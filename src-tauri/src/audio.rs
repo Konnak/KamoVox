@@ -8,7 +8,7 @@ use std::time::Duration;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use kamovox_ai::{
-    cosine, to_16k, LoadKey, Models, Realtime, SpeakerEmbedder, SpeechBuffer, Stats, Timing,
+    max_cosine_flat, to_16k, LoadKey, Models, Realtime, SpeakerEmbedder, SpeechBuffer, Stats, Timing,
     EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS, LIVE_SPEECH_MS,
 };
 use kamovox_dsp::{Params, Processor};
@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.22-beta-toggle-20261028";
+pub const BUILD_ID: &str = "0.1.23-voice-eq-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1178,11 +1178,15 @@ fn neural_loop(
             continue;
         }
         last = std::time::Instant::now();
-        let (centroid, cfg) = match shared.params.lock() {
+        let (centroid, gallery, cfg) = match shared.params.lock() {
             Ok(p) if p.voice_gate && p.voice_embed.len() == EMBED_DIM => {
-                (Some(p.voice_embed.clone()), shared.generation.load(Ordering::Relaxed))
+                (
+                    Some(p.voice_embed.clone()),
+                    p.voice_gallery.clone(),
+                    shared.generation.load(Ordering::Relaxed),
+                )
             }
-            _ => (None, 0),
+            _ => (None, Vec::new(), 0),
         };
         let Some(centroid) = centroid else {
             shared.clear_neural();
@@ -1195,7 +1199,6 @@ fn neural_loop(
             || (speech.ready_short() && (speech.frozen() || speech.speech_ms() >= FIRST_SPEECH_MS as f32));
         if !can_score {
             if speech.utterance_id != scored_utt {
-                shared.clear_neural();
                 scored_utt = 0;
             }
             continue;
@@ -1203,20 +1206,37 @@ fn neural_loop(
 
         let utt = speech.utterance_id;
         let window = speech.snapshot(win);
-        let wav16 = to_16k(&window, sample_rate);
         let t0 = std::time::Instant::now();
-        match embedder.embed(&wav16) {
-            Ok(live) => {
+        let mut best: Option<(f32, Vec<f32>)> = None;
+        let score_one = |e: &mut SpeakerEmbedder, pcm: &[f32], centroid: &[f32], gallery: &[f32]| {
+            let wav = to_16k(pcm, sample_rate);
+            e.embed(&wav).ok().map(|live| (max_cosine_flat(&live, centroid, gallery), wav))
+        };
+        if let Some(pair) = score_one(&mut embedder, &window, &centroid, &gallery) {
+            best = Some(pair);
+        }
+        // Short tail vs gallery of short enrollments — this is what "Oi" looks like.
+        let short_n = ((sample_rate as u64 * 400) / 1000) as usize;
+        if window.len() > short_n + short_n / 5 {
+            let tail = &window[window.len() - short_n..];
+            if let Some((s, wav)) = score_one(&mut embedder, tail, &centroid, &gallery) {
+                match &best {
+                    Some((b, _)) if s > *b => best = Some((s, wav)),
+                    None => best = Some((s, wav)),
+                    _ => {}
+                }
+            }
+        }
+        match best {
+            Some((score, wav_used)) => {
                 let infer_ms = t0.elapsed().as_secs_f32() * 1000.0;
-                let score = cosine(&centroid, &live);
-                // Ignore stale if utterance already advanced mid-infer (cheap check).
                 if speech.utterance_id == utt {
                     let infer = shared.publish_neural(score, utt, cfg, infer_ms);
                     scored_utt = utt;
-                    dump_biometry_capture(utt, infer, sample_rate, &window, &wav16, score, &centroid);
+                    dump_biometry_capture(utt, infer, sample_rate, &window, &wav_used, score, &centroid);
                 }
             }
-            Err(_) => {}
+            None => {}
         }
     }
     shared.clear_neural();

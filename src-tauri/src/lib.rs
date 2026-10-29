@@ -123,6 +123,8 @@ struct VoicePrintCapture {
     frames: u32,
     /// CAM++ enrollment embedding when the speaker model is installed.
     embed: Vec<f32>,
+    /// Extra CAM++ templates (N×512).
+    gallery: Vec<f32>,
     neural: bool,
     neural_lo: f32,
     neural_hi: f32,
@@ -138,13 +140,14 @@ fn voice_print_end(state: State<AppState>) -> Result<VoicePrintCapture, String> 
     let print = kamovox_dsp::build_voice_print(&samples, rate as f32).ok_or(
         "Não ouvi voz suficiente. Fale por uns 15 segundos, perto do microfone, no volume normal, com o ambiente em silêncio.",
     )?;
-    let (embed, neural, neural_lo, neural_hi, neural_reject, self_p05, self_p10, self_median) =
+    let (embed, gallery, neural, neural_lo, neural_hi, neural_reject, self_p05, self_p10, self_median) =
         match state.library.speaker_path() {
             Some(path) => {
                 let wav16 = kamovox_ai::to_16k(&samples, rate);
                 match kamovox_ai::SpeakerEmbedder::load(&path).and_then(|mut e| e.embed_enroll(&wav16)) {
                     Ok(r) => (
                         r.embed,
+                        kamovox_ai::flatten_gallery(&r.gallery),
                         true,
                         r.thresh_lo,
                         r.thresh_hi,
@@ -156,7 +159,7 @@ fn voice_print_end(state: State<AppState>) -> Result<VoicePrintCapture, String> 
                     Err(e) => return Err(format!("Biometria neural: {e}")),
                 }
             }
-            None => (Vec::new(), false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            None => (Vec::new(), Vec::new(), false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         };
     Ok(VoicePrintCapture {
         bands: print.bands.to_vec(),
@@ -169,6 +172,7 @@ fn voice_print_end(state: State<AppState>) -> Result<VoicePrintCapture, String> 
         f3: print.f3,
         frames: print.frames,
         embed,
+        gallery,
         neural,
         neural_lo,
         neural_hi,

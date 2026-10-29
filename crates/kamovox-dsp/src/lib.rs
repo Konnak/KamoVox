@@ -112,6 +112,9 @@ pub struct Params {
     /// CAM++ enrollment embedding (512). Empty = DSP-only gate.
     #[serde(default)]
     pub voice_embed: Vec<f32>,
+    /// Extra CAM++ templates (N×512, N≤16). Live score = max cosine vs centroid+gallery.
+    #[serde(default)]
+    pub voice_gallery: Vec<f32>,
     /// Calibrated cosine at strict=0 / strict=1 (from enrollment self-scores).
     #[serde(default)]
     pub voice_neural_lo: f32,
@@ -124,7 +127,7 @@ pub struct Params {
     #[serde(default = "voice_protect_default")]
     pub voice_protect: bool,
     pub append_original: bool,
-    /// Longer pitch window: less metallic, a little more delay. Classic voices only.
+    /// Longer WSOLA grain (~44 ms vs ~38 ms). Classic voices only.
     pub smooth: bool,
 }
 
@@ -156,12 +159,12 @@ impl Default for Params {
             treble_db: 0.0,
             eq: flat_eq(),
             denoise: false,
-            denoise_amount: 1.0,
+            denoise_amount: 0.75,
             noise_floor: 0.0,
             impact: 0.0,
             compress: 0.0,
             voice_gate: false,
-            voice_strict: 0.55, // keep in sync with voice_strict_default
+            voice_strict: 0.35, // keep in sync with voice_strict_default
             voice_bands: empty_print(),
             voice_pitch: 0.0,
             voice_pitch_lo: 0.0,
@@ -171,6 +174,7 @@ impl Default for Params {
             voice_f2: 0.0,
             voice_f3: 0.0,
             voice_embed: Vec::new(),
+            voice_gallery: Vec::new(),
             voice_neural_lo: 0.0,
             voice_neural_hi: 0.0,
             voice_neural_reject: 0.0,
@@ -186,11 +190,11 @@ fn flat_eq() -> [f32; 10] {
 }
 
 fn full_mix() -> f32 {
-    1.0
+    0.75
 }
 
 fn voice_strict_default() -> f32 {
-    0.55
+    0.35
 }
 
 fn voice_protect_default() -> bool {
@@ -232,8 +236,11 @@ struct Denoiser {
     amount: f32,
 }
 
-const DENOISE_FLOOR: f32 = 0.01;
-const DENOISE_HOLD_FRAMES: u32 = 20;
+/// Residual gain when RNNoise VAD says “not speech”. Must stay audible enough
+/// that unvoiced consonants (s, f, t) are not chopped — RNNoise already cleaned
+/// the spectrum; this only ducks leftover hiss between phrases.
+const DENOISE_FLOOR: f32 = 0.18;
+const DENOISE_HOLD_FRAMES: u32 = 36;
 
 impl Denoiser {
     fn new() -> Self {
@@ -263,14 +270,16 @@ impl Denoiser {
             self.input.push(*s * 32_767.0);
             if self.input.len() == DENOISE_FRAME {
                 let vad = self.state.process_frame(&mut self.frame, &self.input);
-                // Loud broadband noise alone scores around 0.5; speech scores above 0.8.
-                if vad > 0.8 {
+                // Do not hard-gate on VAD: loud hiss scores ~0.5, the same band as
+                // unvoiced consonants. RNNoise already cleaned the spectrum; only
+                // duck true quiet so the noise floor between phrases drops a bit.
+                if vad > 0.28 {
                     self.hold = DENOISE_HOLD_FRAMES;
                 } else if self.hold > 0 {
                     self.hold -= 1;
                 }
-                let open = if self.hold > 0 { 1.0 } else { ((vad - 0.55) / 0.3).clamp(DENOISE_FLOOR, 1.0) };
-                let target = open.max(self.gain * 0.6);
+                let open = if self.hold > 0 { 1.0 } else { DENOISE_FLOOR + 0.35 * vad };
+                let target = open.max(self.gain * 0.78);
                 let start = self.gain;
                 let step = (target - start) / DENOISE_FRAME as f32;
                 for (i, v) in self.frame.iter().enumerate() {
@@ -521,10 +530,8 @@ impl Processor {
             self.voices = p.voices.iter().map(|&k| VoiceStage::new(self.sr, k)).collect();
         }
 
-        // SoundTouch-like sequence: 38 ms default / 42 ms "suave" (never ≥50 ms —
-        // that reintroduces Haas double-voice). Value only selects the preset;
-        // PitchShifter maps it internally.
-        let window_ms = if p.smooth { 55.0 } else { 38.0 };
+        // Default 38 ms / “Voz mais suave” 44 ms. Never ≥50 ms (Haas double-voice).
+        let window_ms = if p.smooth { 44.0 } else { 38.0 };
         self.tuner.set_window_ms(window_ms);
         for v in &mut self.voices {
             v.set_window_ms(window_ms);
@@ -880,14 +887,40 @@ mod tests {
         let rms = |b: &[f32]| (b.iter().map(|v| v * v).sum::<f32>() / b.len() as f32).sqrt();
 
         let mut proc = Processor::new(48_000);
-        proc.set_params(Params { denoise: true, ..Params::default() });
+        proc.set_params(Params { denoise: true, denoise_amount: 1.0, ..Params::default() });
         let mut buf = input.clone();
         for chunk in buf.chunks_mut(441) {
             proc.process(chunk);
         }
         let tail = 48_000;
         let ratio = rms(&buf[tail..]) / rms(&input[tail..]);
-        assert!(ratio < 0.1, "noise only reduced to {ratio}");
+        // RNNoise residual, not a VAD mute (that mute ate consonants).
+        assert!(ratio < 0.35, "noise only reduced to {ratio}");
+    }
+
+    #[test]
+    fn denoise_keeps_voiced_speech() {
+        let sr = 48_000.0;
+        let input: Vec<f32> = (0..48_000 * 2)
+            .map(|i| {
+                let t = i as f32 / sr;
+                let mut x = 0.0f32;
+                for h in 1..=6 {
+                    x += (std::f32::consts::TAU * 150.0 * h as f32 * t).sin() / h as f32;
+                }
+                x * 0.18
+            })
+            .collect();
+        let rms = |b: &[f32]| (b.iter().map(|v| v * v).sum::<f32>() / b.len() as f32).sqrt();
+        let mut proc = Processor::new(48_000);
+        proc.set_params(Params { denoise: true, denoise_amount: 0.75, ..Params::default() });
+        let mut buf = input.clone();
+        for chunk in buf.chunks_mut(480) {
+            proc.process(chunk);
+        }
+        let gain = rms(&buf[24_000..]) / rms(&input[24_000..]);
+        assert!(gain > 0.40, "denoise ate the voice ({gain})");
+        assert!(buf.iter().all(|v| v.is_finite()));
     }
 
     #[test]
