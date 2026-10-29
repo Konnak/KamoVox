@@ -512,6 +512,7 @@ function paintEq() {
     c.setAttribute("cy", p.y.toFixed(1));
     c.setAttribute("r", eqDrag === i ? "7" : "5.5");
   });
+  if (eqDrag >= 0) return;
   const fold = document.querySelector('[data-fold="eq"] small');
   if (fold) fold.textContent = eqSummary();
 }
@@ -522,21 +523,30 @@ function bindEq() {
   paintEq();
   const h = 232;
   const pad = 16;
+  const read = document.getElementById("eq-read");
+  let dragRect: DOMRect | null = null;
+  let frame = 0;
+  const flushEq = () => {
+    void invoke("set_eq", { eq: settings.params.eq.slice() });
+  };
   const setFromY = (clientY: number) => {
-    if (eqDrag < 0) return;
-    const rect = svg.getBoundingClientRect();
-    const y = ((clientY - rect.top) / rect.height) * h;
-    const db = EQ_DB - ((y - pad) / (h - pad * 2)) * (EQ_DB * 2);
-    settings.params.eq[eqDrag] = Math.max(-EQ_DB, Math.min(EQ_DB, Math.round(db * 2) / 2));
-    const band = EQ_BANDS[eqDrag]!;
-    $("#eq-read").textContent = `${band.label} Hz · ${signed(settings.params.eq[eqDrag]!, 1, "dB")}`;
-    paintEq();
-    pushParams();
+    if (eqDrag < 0 || !dragRect || dragRect.height <= 0) return;
+    const y = ((clientY - dragRect.top) / dragRect.height) * h;
+    const db = Math.max(-EQ_DB, Math.min(EQ_DB, Math.round((EQ_DB - ((y - pad) / (h - pad * 2)) * (EQ_DB * 2)) * 2) / 2));
+    if (settings.params.eq[eqDrag] === db) return;
+    settings.params.eq[eqDrag] = db;
+    if (read) read.textContent = `${EQ_BANDS[eqDrag]!.label} Hz · ${signed(db, 1, "dB")}`;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      paintEq();
+      flushEq();
+    });
   };
   svg.addEventListener("pointerdown", (e) => {
     const ev = e as PointerEvent;
-    const rect = svg.getBoundingClientRect();
-    const x = ((ev.clientX - rect.left) / rect.width) * 720;
+    dragRect = svg.getBoundingClientRect();
+    const x = ((ev.clientX - dragRect.left) / dragRect.width) * 720;
     let best = 0;
     let dist = Infinity;
     EQ_BANDS.forEach((b, i) => {
@@ -546,19 +556,31 @@ function bindEq() {
         best = i;
       }
     });
-    if (dist > 36) return;
+    if (dist > 36) {
+      dragRect = null;
+      return;
+    }
     eqDrag = best;
     svg.setPointerCapture(ev.pointerId);
     if (ev.detail === 2) {
       settings.params.eq[best] = 0;
       paintEq();
+      flushEq();
       pushParams();
     } else setFromY(ev.clientY);
   });
   svg.addEventListener("pointermove", (e) => setFromY((e as PointerEvent).clientY));
   const end = () => {
+    if (eqDrag < 0) return;
+    if (frame) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
     eqDrag = -1;
+    dragRect = null;
     paintEq();
+    flushEq();
+    pushParams();
   };
   svg.addEventListener("pointerup", end);
   svg.addEventListener("pointercancel", end);

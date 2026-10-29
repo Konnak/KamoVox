@@ -88,6 +88,15 @@ fn set_params(state: State<AppState>, params: Params) {
 }
 
 #[tauri::command]
+fn set_eq(state: State<AppState>, eq: Vec<f32>) {
+    let mut bands = [0f32; 10];
+    for (i, v) in eq.into_iter().take(10).enumerate() {
+        bands[i] = v.clamp(-12.0, 12.0);
+    }
+    state.engine.set_eq(bands);
+}
+
+#[tauri::command]
 fn set_ai_pitch(state: State<AppState>, semitones: f32) {
     state.engine.set_transpose(semitones);
 }
@@ -434,6 +443,7 @@ pub fn run() {
             start_engine,
             stop_engine,
             set_params,
+            set_eq,
             set_ai_pitch,
             calibration_begin,
             calibration_end,

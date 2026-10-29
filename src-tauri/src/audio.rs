@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.30-eq-live-20261029";
+pub const BUILD_ID: &str = "0.1.31-eq-drag-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -371,6 +371,17 @@ impl Engine {
     pub fn set_params(&self, params: Params) {
         if let Ok(mut p) = self.shared.params.lock() {
             *p = params;
+        }
+        self.shared.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Graphic EQ only. Avoids cloning the voice embeddings on every drag sample.
+    pub fn set_eq(&self, eq: [f32; 10]) {
+        if let Ok(mut p) = self.shared.params.lock() {
+            if p.eq == eq {
+                return;
+            }
+            p.eq = eq;
         }
         self.shared.generation.fetch_add(1, Ordering::AcqRel);
     }
