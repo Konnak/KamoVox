@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.34-live-controls-20261029";
+pub const BUILD_ID: &str = "0.1.35-live-mix-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -186,9 +186,17 @@ struct Shared {
     /// Enrollment pauses live CAM++ so we do not load a second session mid-run.
     neural_pause: AtomicBool,
     neural_busy: AtomicBool,
-    /// Graphic EQ gains as f32 bits. The drag path writes these without the params mutex.
+    /// Graphic EQ and the cheap live controls. The drag path writes these without the params mutex.
     eq_gen: AtomicU64,
     eq_bits: [AtomicU32; 10],
+    boost_bits: AtomicU32,
+    bass_bits: AtomicU32,
+    treble_bits: AtomicU32,
+    sensitivity_bits: AtomicU32,
+    compress_bits: AtomicU32,
+    noise_bits: AtomicU32,
+    impact_bits: AtomicU32,
+    denoise_amt_bits: AtomicU32,
 }
 
 impl Shared {
@@ -306,11 +314,40 @@ impl Shared {
         *seen = gen;
     }
 
-    fn store_eq(&self, eq: [f32; 10]) {
+    fn publish_controls(&self) {
+        self.eq_gen.fetch_add(1, Ordering::Release);
+    }
+
+    fn write_eq(&self, eq: [f32; 10]) {
         for (slot, value) in self.eq_bits.iter().zip(eq) {
             slot.store(value.to_bits(), Ordering::Relaxed);
         }
-        self.eq_gen.fetch_add(1, Ordering::Release);
+    }
+
+    fn write_live(
+        &self,
+        boost: f32,
+        bass_db: f32,
+        treble_db: f32,
+        sensitivity_db: f32,
+        compress: f32,
+        noise_floor: f32,
+        impact: f32,
+        denoise_amount: f32,
+    ) {
+        self.boost_bits.store(boost.to_bits(), Ordering::Relaxed);
+        self.bass_bits.store(bass_db.to_bits(), Ordering::Relaxed);
+        self.treble_bits.store(treble_db.to_bits(), Ordering::Relaxed);
+        self.sensitivity_bits.store(sensitivity_db.to_bits(), Ordering::Relaxed);
+        self.compress_bits.store(compress.to_bits(), Ordering::Relaxed);
+        self.noise_bits.store(noise_floor.to_bits(), Ordering::Relaxed);
+        self.impact_bits.store(impact.to_bits(), Ordering::Relaxed);
+        self.denoise_amt_bits.store(denoise_amount.to_bits(), Ordering::Relaxed);
+    }
+
+    fn store_eq(&self, eq: [f32; 10]) {
+        self.write_eq(eq);
+        self.publish_controls();
     }
 
     fn pull_eq(&self, proc: &mut Processor, seen: &mut u64) {
@@ -320,8 +357,19 @@ impl Shared {
             for (i, slot) in self.eq_bits.iter().enumerate() {
                 eq[i] = f32::from_bits(slot.load(Ordering::Relaxed));
             }
+            let bits = |a: &AtomicU32| f32::from_bits(a.load(Ordering::Relaxed));
+            proc.apply_live(
+                bits(&self.boost_bits),
+                bits(&self.sensitivity_bits),
+                bits(&self.compress_bits),
+                bits(&self.noise_bits),
+                bits(&self.impact_bits),
+                bits(&self.denoise_amt_bits),
+                bits(&self.bass_bits),
+                bits(&self.treble_bits),
+                eq,
+            );
             *seen = gen;
-            proc.set_graphic_target(eq);
         }
         proc.approach_graphic_eq();
     }
@@ -366,6 +414,14 @@ impl Engine {
             neural_busy: AtomicBool::new(false),
             eq_gen: AtomicU64::new(0),
             eq_bits: std::array::from_fn(|_| AtomicU32::new(0)),
+            boost_bits: AtomicU32::new(100f32.to_bits()),
+            bass_bits: AtomicU32::new(0),
+            treble_bits: AtomicU32::new(0),
+            sensitivity_bits: AtomicU32::new((-90f32).to_bits()),
+            compress_bits: AtomicU32::new(0),
+            noise_bits: AtomicU32::new(0),
+            impact_bits: AtomicU32::new(0),
+            denoise_amt_bits: AtomicU32::new(0.75f32.to_bits()),
         });
         shared.clear_neural();
         let status = Arc::new(Mutex::new(Status::default()));
@@ -413,7 +469,18 @@ impl Engine {
     }
 
     pub fn set_params(&self, params: Params) {
-        self.shared.store_eq(params.eq);
+        self.shared.write_eq(params.eq);
+        self.shared.write_live(
+            params.boost,
+            params.bass_db,
+            params.treble_db,
+            params.sensitivity_db,
+            params.compress,
+            params.noise_floor,
+            params.impact,
+            params.denoise_amount,
+        );
+        self.shared.publish_controls();
         if let Ok(mut p) = self.shared.params.lock() {
             *p = params;
         }
@@ -425,6 +492,41 @@ impl Engine {
         self.shared.store_eq(eq);
         if let Ok(mut p) = self.shared.params.try_lock() {
             p.eq = eq;
+        }
+    }
+
+    /// Gain, shelves and dynamics. Does not rebuild pitch, denoise or the voice print.
+    pub fn set_live(
+        &self,
+        boost: f32,
+        bass_db: f32,
+        treble_db: f32,
+        sensitivity_db: f32,
+        compress: f32,
+        noise_floor: f32,
+        impact: f32,
+        denoise_amount: f32,
+    ) {
+        self.shared.write_live(
+            boost,
+            bass_db,
+            treble_db,
+            sensitivity_db,
+            compress,
+            noise_floor,
+            impact,
+            denoise_amount,
+        );
+        self.shared.publish_controls();
+        if let Ok(mut p) = self.shared.params.try_lock() {
+            p.boost = boost;
+            p.bass_db = bass_db;
+            p.treble_db = treble_db;
+            p.sensitivity_db = sensitivity_db;
+            p.compress = compress;
+            p.noise_floor = noise_floor;
+            p.impact = impact;
+            p.denoise_amount = denoise_amount;
         }
     }
 

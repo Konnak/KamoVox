@@ -232,9 +232,6 @@ struct Denoiser {
     frame: [f32; DENOISE_FRAME],
     dry: VecDeque<f32>,
     gain: f32,
-    target: f32,
-    attack: f32,
-    release: f32,
     hold: u32,
     amount: f32,
 }
@@ -258,9 +255,6 @@ impl Denoiser {
             frame: [0.0; DENOISE_FRAME],
             dry,
             gain: 1.0,
-            target: 1.0,
-            attack: coef(48_000.0, 5.0),
-            release: coef(48_000.0, 80.0),
             hold: 0,
             amount: 1.0,
         }
@@ -284,21 +278,18 @@ impl Denoiser {
                 } else if self.hold > 0 {
                     self.hold -= 1;
                 }
-                self.target = if self.hold > 0 {
-                    1.0
-                } else {
-                    DENOISE_FLOOR + 0.35 * vad
-                };
-                for v in &self.frame {
-                    self.output.push_back(v / 32_767.0);
+                let open = if self.hold > 0 { 1.0 } else { DENOISE_FLOOR + 0.35 * vad };
+                let target = open.max(self.gain * 0.78);
+                let start = self.gain;
+                let step = (target - start) / DENOISE_FRAME as f32;
+                for (i, v) in self.frame.iter().enumerate() {
+                    self.output.push_back(v / 32_767.0 * (start + step * i as f32));
                 }
+                self.gain = target;
                 self.input.clear();
             }
             let wet = self.output.pop_front().unwrap_or(0.0);
             let dry = self.dry.pop_front().unwrap_or(0.0);
-            let k = if self.target > self.gain { self.attack } else { self.release };
-            self.gain += (self.target - self.gain) * k;
-            let wet = wet * self.gain;
             *s = dry * (1.0 - self.amount) + wet * self.amount;
         }
     }

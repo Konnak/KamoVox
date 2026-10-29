@@ -96,6 +96,33 @@ fn set_eq(state: State<AppState>, eq: Vec<f32>) {
     state.engine.set_eq(bands);
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveControls {
+    boost: f32,
+    bass_db: f32,
+    treble_db: f32,
+    sensitivity_db: f32,
+    compress: f32,
+    noise_floor: f32,
+    impact: f32,
+    denoise_amount: f32,
+}
+
+#[tauri::command]
+fn set_live(state: State<AppState>, controls: LiveControls) {
+    state.engine.set_live(
+        controls.boost,
+        controls.bass_db,
+        controls.treble_db,
+        controls.sensitivity_db,
+        controls.compress,
+        controls.noise_floor,
+        controls.impact,
+        controls.denoise_amount,
+    );
+}
+
 #[tauri::command]
 fn set_ai_pitch(state: State<AppState>, semitones: f32) {
     state.engine.set_transpose(semitones);
@@ -444,6 +471,7 @@ pub fn run() {
             stop_engine,
             set_params,
             set_eq,
+            set_live,
             set_ai_pitch,
             calibration_begin,
             calibration_end,

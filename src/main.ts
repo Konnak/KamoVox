@@ -1019,6 +1019,40 @@ function save() {
 let saveTimer: number | undefined;
 let paramsFlight = false;
 let paramsDirty = false;
+let liveFlight = false;
+let liveDirty = false;
+const LIVE_SLIDERS = new Set(["boost", "bass-shelf", "treble-shelf", "gate", "compress", "noise-floor", "impact", "denoise-amount"]);
+
+function pushLive() {
+  liveDirty = true;
+  if (liveFlight) return;
+  const send = () => {
+    if (!liveDirty) {
+      liveFlight = false;
+      return;
+    }
+    liveDirty = false;
+    liveFlight = true;
+    const p = settings.params;
+    void invoke("set_live", {
+      controls: {
+        boost: p.boost,
+        bassDb: p.bassDb,
+        trebleDb: p.trebleDb,
+        sensitivityDb: p.sensitivityDb,
+        compress: p.compress,
+        noiseFloor: p.noiseFloor,
+        impact: p.impact,
+        denoiseAmount: p.denoiseAmount,
+      },
+    }).finally(() => {
+      if (liveDirty) send();
+      else liveFlight = false;
+    });
+  };
+  send();
+}
+
 function pushParams() {
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(save, 500);
@@ -1157,15 +1191,22 @@ function bindSliders() {
     const publish = () => {
       if (d.commitOnRelease) return;
       if (d.onChange) d.onChange();
+      else if (LIVE_SLIDERS.has(d.id)) pushLive();
       else pushParams();
     };
     const release = () => {
       if (d.commitOnRelease && d.onChange) {
         save();
         d.onChange();
-      } else if (!d.onChange) {
-        pushParams();
+        return;
       }
+      if (LIVE_SLIDERS.has(d.id)) {
+        pushLive();
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(save, 500);
+        return;
+      }
+      if (!d.onChange) pushParams();
     };
 
     paint();
