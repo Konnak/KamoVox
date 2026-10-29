@@ -146,7 +146,7 @@ async fn voice_print_end(state: State<'_, AppState>) -> Result<VoicePrintCapture
 fn voice_print_end_blocking(engine: Engine, speaker: Option<PathBuf>) -> Result<VoicePrintCapture, String> {
     let (samples, rate) = engine.end_calibration();
     let print = kamovox_dsp::build_voice_print(&samples, rate as f32).ok_or(
-        "Não ouvi voz suficiente. Fale por uns 15 segundos, perto do microfone, no volume normal, com o ambiente em silêncio.",
+        "Não ouvi voz suficiente. Fale uns 15 segundos perto do microfone: voz normal, depois uma frase mais grossa ou fina, e uma risada curta, com o ambiente em silêncio.",
     )?;
     struct ResumeNeural(Engine);
     impl Drop for ResumeNeural {

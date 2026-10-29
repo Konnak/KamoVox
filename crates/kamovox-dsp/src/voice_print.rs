@@ -1,50 +1,41 @@
-//! "Only my voice" — sidechain gate with utterance lock and bit-exact passthrough.
+//! "Only my voice" — zero-delay fail-open gate with CAM++ as impostor veto.
 //!
 //! Architecture:
-//! - Analysis runs on a sidechain; wet PCM is delayed bit-exactly.
-//! - **Protected** (default with CAM++): hold audio until neural confirm; delay
-//!   ≈ 620 ms so the phrase start is still in the buffer when we open.
-//! - **Fast**: may soft-open into Verifying (audible) before CAM++ — lower
-//!   latency, higher risk of early third-party leak.
-//! - States: Closed → Candidate → Verifying → Locked → Holding → Releasing / Rejected.
+//! - Sidechain analysis; wet PCM delayed a **fixed 30 ms** (fade/onset only).
+//! - Speech + mic proximity opens immediately (`gain = 1`, bit-exact).
+//! - CAM++ never holds the buffer: it only **vetoes** after ≥500 ms of speech
+//!   and two low scores in a row.
+//! - Laughs, pitch swings and short words stay open when the mic is close
+//!   or the owner spoke in the last 2 s.
 
 use std::collections::VecDeque;
 
 use crate::filters::{coef, Biquad};
 
 pub const PRINT_BANDS: usize = 12;
-/// Fast mode delay (covers soft hops + small margin).
-pub const LOOKAHEAD_FAST_MS: f32 = 280.0;
-/// Protected: ≥400 ms speech + inference + margin so confirm-before-transmit works.
-pub const LOOKAHEAD_PROTECTED_MS: f32 = 620.0;
-/// Back-compat alias (fast).
-#[allow(dead_code)]
-pub const LOOKAHEAD_MS: f32 = LOOKAHEAD_FAST_MS;
+/// Fixed lookahead: enough for a 5 ms fade without eating the first consonant.
+pub const LOOKAHEAD_MS: f32 = 30.0;
+/// Back-compat aliases — both modes share the 30 ms line.
+pub const LOOKAHEAD_FAST_MS: f32 = LOOKAHEAD_MS;
+pub const LOOKAHEAD_PROTECTED_MS: f32 = LOOKAHEAD_MS;
 
 const CENTERS: [f32; PRINT_BANDS] = [
     140.0, 200.0, 280.0, 390.0, 540.0, 750.0, 1_040.0, 1_450.0, 2_000.0, 2_700.0, 3_500.0, 4_500.0,
 ];
 
 const SILENCE: f32 = 0.00010;
-const SILENCE_EXIT_HOPS: u32 = 8; // ~160 ms inactive → Holding
-const HOLD_EXIT_HOPS: u32 = 6; // ~120 ms more → Releasing (~280 ms total pause)
-const FOREIGN_EXIT_HOPS: u32 = 18;
-const OPEN_CONFIRM_HOPS: u32 = 8;
-const CANDIDATE_HOPS: u32 = 2;
-const REJECT_COOLDOWN_HOPS: u32 = 20;
-/// Wait for CAM++ after speech ends (~1 s) before giving up on a short phrase.
-const VERIFY_GRACE_HOPS: u32 = 50;
-/// Need roughly this much speech (~500 ms) before CONFIRMED_OTHER is allowed.
-const MIN_SPEECH_HOPS_REJECT: u32 = 25;
-/// Sustained low scores required to enter Rejected from Verifying.
-const VERIFY_FOREIGN_HOPS: u32 = 8;
-/// Once Locked, require this many confirmed-other hops to leave (DSP / no neural).
-const LOCKED_FOREIGN_HOPS: u32 = 12;
-/// Protected / exigência ≥80%: second confirm after ~1.4 s of speech.
-const DUAL_SPEECH_HOPS: u32 = 70;
-/// Strong single-score margin vs thresh (avoids 780 ms impostor peaks).
-const STRONG_MARGIN: f32 = 0.06;
-const REVOKE_MARGIN: f32 = 0.03;
+/// ~260 ms of inactivity clears a veto / ends an utterance.
+const PAUSE_HOPS: u32 = 13;
+const HOLD_EXIT_HOPS: u32 = 13;
+const REJECT_COOLDOWN_HOPS: u32 = 13;
+/// CAM++ (or DSP) may veto only after this much speech (~500 ms).
+const VETO_SPEECH_HOPS: u32 = 25;
+/// Short words stay fail-open (~600 ms).
+const SHORT_WORD_HOPS: u32 = 30;
+/// Owner spoke recently — keep expressions open (~2 s).
+const OWNER_HOLD_HOPS: u32 = 100;
+/// Two consecutive CAM++ misses trigger the impostor veto.
+const VETO_FAILS: u32 = 2;
 
 /// Public phase for UI / diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +53,7 @@ pub enum GatePhase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+#[allow(dead_code)]
 enum GateState {
     Closed = 1,
     Confirming = 2,
@@ -223,6 +215,10 @@ pub struct VoiceGate {
     pass_streak: u32,
     fail_streak: u32,
     applied_infer: u64,
+    last_pitch: f32,
+    rms_ema: f32,
+    owner_hold_hops: u32,
+    express_hops: u32,
 }
 
 /// One Speaker Gate decision for the diagnostic report (no private audio).
@@ -243,7 +239,7 @@ pub struct GateEvent {
 
 impl VoiceGate {
     pub fn new(sr: f32) -> Self {
-        let delay_len = ((sr * LOOKAHEAD_PROTECTED_MS / 1000.0) as usize).max(1);
+        let delay_len = ((sr * LOOKAHEAD_MS / 1000.0) as usize).max(1);
         Self {
             on: false,
             print: [0.0; PRINT_BANDS],
@@ -291,6 +287,10 @@ impl VoiceGate {
             pass_streak: 0,
             fail_streak: 0,
             applied_infer: 0,
+            last_pitch: 0.0,
+            rms_ema: 0.0,
+            owner_hold_hops: 0,
+            express_hops: 0,
         }
     }
 
@@ -309,8 +309,7 @@ impl VoiceGate {
     }
 
     pub fn buffer_capacity_ms(&self) -> f32 {
-        let cap = self.delay_len + ((self.sr * 1.25) as usize);
-        cap as f32 * 1000.0 / self.sr.max(1.0)
+        self.delay_ms()
     }
 
     pub fn speech_hops(&self) -> u32 {
@@ -383,36 +382,11 @@ impl VoiceGate {
         self.fail_streak = 0;
     }
 
-    fn want_dual(&self) -> bool {
-        self.protect || self.strict >= 0.8
-    }
-
-    fn owner_confirmed(&self) -> bool {
-        let Some(raw) = self.neural_raw else {
+    fn neural_below(&self) -> bool {
+        let Some(raw) = self.neural_raw.or(self.neural) else {
             return false;
         };
-        let need = self.neural_need();
-        if raw < need {
-            return false;
-        }
-        if !self.want_dual() {
-            return true;
-        }
-        if raw >= need + STRONG_MARGIN {
-            return true;
-        }
-        self.pass_streak >= 2 && self.speech_hops >= DUAL_SPEECH_HOPS
-    }
-
-    fn should_revoke_lock(&self) -> bool {
-        let Some(raw) = self.neural_raw else {
-            return false;
-        };
-        if self.fail_streak == 0 {
-            return false;
-        }
-        let need = self.neural_need();
-        raw < need - REVOKE_MARGIN || self.fail_streak >= 2
+        raw < self.neural_need()
     }
 
     fn push_diag(&mut self, prev: GateState, next: GateState) {
@@ -555,12 +529,7 @@ impl VoiceGate {
         self.neural_reject = new_reject;
         self.protect = new_protect;
 
-        let want_ms = if self.neural_enrolled && self.protect {
-            LOOKAHEAD_PROTECTED_MS
-        } else {
-            LOOKAHEAD_FAST_MS
-        };
-        let want = ((self.sr * want_ms / 1000.0) as usize).max(1);
+        let want = ((self.sr * LOOKAHEAD_MS / 1000.0) as usize).max(1);
         if want != self.delay_len {
             self.delay_len = want;
             if hard {
@@ -584,6 +553,10 @@ impl VoiceGate {
             self.pass_streak = 0;
             self.fail_streak = 0;
             self.applied_infer = 0;
+            self.last_pitch = 0.0;
+            self.rms_ema = 0.0;
+            self.owner_hold_hops = 0;
+            self.express_hops = 0;
             self.delay.clear();
             self.popped = 0;
             self.last_src = u64::MAX;
@@ -633,36 +606,10 @@ impl VoiceGate {
         }
         self.last_src = u64::MAX;
         self.observe(raw);
+        while self.delay.len() < self.delay_len {
+            self.delay.push_back(0.0);
+        }
         self.delay.push_back(wet);
-
-        // Protected: grow only while Candidate/Verifying (or Closed with confirm
-        // hops — onset). Do NOT grow on bare speech_env in Closed: that filled
-        // the 1.25 s cap while vetoed/silent-reason and looked like a 1870 ms bug.
-        let holding_utt = self.protect
-            && !self.utterance_vetoed
-            && (matches!(self.state, GateState::Candidate | GateState::Verifying)
-                || (matches!(self.state, GateState::Closed) && self.confirm_hops > 0));
-        if holding_utt {
-            let cap = self.delay_len + ((self.sr * 1.25) as usize);
-            while self.delay.len() > cap {
-                self.delay.pop_front();
-                self.popped = self.popped.wrapping_add(1);
-            }
-            return 0.0;
-        }
-
-        // Recover latency only when fully closed — not in Holding, or we would
-        // discard the still-unplayed tail of the phrase.
-        if matches!(self.state, GateState::Closed | GateState::Rejected) {
-            while self.delay.len() > self.delay_len {
-                self.delay.pop_front();
-                self.popped = self.popped.wrapping_add(1);
-            }
-        }
-
-        if self.delay.len() <= self.delay_len {
-            return 0.0;
-        }
         let out = self.delay.pop_front().unwrap_or(0.0);
         self.emit_sample(out)
     }
@@ -671,11 +618,8 @@ impl VoiceGate {
         if let Some(frame) = self.ears.push(x) {
             self.step_frame(&frame);
         }
-        let audible = matches!(
-            self.state,
-            GateState::Locked | GateState::Holding | GateState::Verifying
-        ) && !(self.state == GateState::Verifying && self.protect);
-        if audible && self.target >= 1.0 - 1e-6 {
+        let open = matches!(self.state, GateState::Locked | GateState::Holding);
+        if open && self.target >= 1.0 - 1e-6 {
             self.gain = 1.0;
             return;
         }
@@ -688,12 +632,15 @@ impl VoiceGate {
         let quiet = frame.energy < SILENCE;
         self.speech_env += ((if quiet { 0.0 } else { 1.0 }) - self.speech_env) * 0.18;
         let inactive = self.speech_env < 0.15;
-        let lock_need = 0.60 + self.strict * 0.12;
-        let neural_need = self.neural_need();
+        let rms = frame.energy.sqrt();
+        self.rms_ema = if self.rms_ema <= 0.0 {
+            rms
+        } else {
+            self.rms_ema * 0.92 + rms * 0.08
+        };
 
         let mut frame_alike = self.confidence;
         if !quiet && frame.voiced {
-            let rms = frame.energy.sqrt();
             frame_alike = match_alike(
                 &self.print,
                 self.pitch_lo,
@@ -708,378 +655,141 @@ impl VoiceGate {
             self.confidence = self.confidence * 0.72 + frame_alike * 0.28;
         }
 
-        let pitch_in_range = frame
-            .pitch
-            .map(|h| h >= self.pitch_lo * 0.96 && h <= self.pitch_hi * 1.04)
-            .unwrap_or(false);
-        let fmatch = formant_score(self.f1, self.f2, self.f3, frame.f1, frame.f2, frame.f3);
         let speech = !quiet && frame.energy > SILENCE * 3.0;
-        let near_level = {
-            let rms = frame.energy.sqrt();
-            rms >= self.level * 0.22 && rms <= self.level * 4.0
-        };
-
-        // Fast soft-open: stricter than v0.1.16 (require pitch + formant agree).
-        let soft_owner = speech
-            && near_level
-            && pitch_in_range
-            && fmatch >= 0.45
-            && frame_alike >= 0.48;
-
-        let speech_start = speech && near_level; // Candidate trigger (not identity)
-
-        let dsp_owner = frame.voiced
-            && !quiet
-            && pitch_in_range
-            && fmatch >= 0.52
-            && self.confidence >= lock_need
-            && frame_alike >= lock_need - 0.05;
-        let dsp_foreign =
-            frame.voiced && !quiet && (!pitch_in_range || fmatch < 0.42 || frame_alike < lock_need - 0.18);
-
-        let neural_ok = self.neural.map(|s| s >= neural_need);
-        // Three zones: OWNER (>= need), UNCERTAIN (reject..need), OTHER (< reject).
-        // Absence of accept is NOT proof of another speaker.
-        let enough_for_reject = self.speech_hops >= MIN_SPEECH_HOPS_REJECT;
-        let reject_line = self.neural_reject.max(0.08).min((neural_need - 0.05).max(0.08));
-        let neural_bad = self
-            .neural
-            .map(|s| speech && enough_for_reject && s < reject_line);
-        if let Some(score) = self.neural {
-            if speech {
-                self.confidence = self.confidence * 0.55 + score.max(0.0) * 0.45;
+        let proximity = speech && rms >= self.level * 0.22;
+        let pitch_jump = match frame.pitch {
+            Some(hz) if self.last_pitch > 60.0 => {
+                let ratio = (hz / self.last_pitch).max(self.last_pitch / hz);
+                ratio > 1.55
             }
-        }
-
-        let foreign_voiced = if self.neural_enrolled {
-            neural_bad == Some(true)
-        } else {
-            dsp_foreign
+            _ => false,
         };
-        // Leave Locked only on CONFIRMED_OTHER evidence, not mid-band dips.
-        let leave_voiced = foreign_voiced;
-
-        // Speech duration belongs to the active candidate/verify/lock cycle only.
-        if speech
-            && matches!(
-                self.state,
-                GateState::Candidate
-                    | GateState::Verifying
-                    | GateState::Locked
-                    | GateState::Holding
-                    | GateState::Confirming
-            )
-        {
-            self.speech_hops = self.speech_hops.saturating_add(1);
+        if let Some(hz) = frame.pitch {
+            self.last_pitch = hz;
         }
+        let laugh = speech && rms >= self.level * 0.85 && !frame.voiced;
+        if laugh || pitch_jump {
+            self.express_hops = 15;
+        } else if self.express_hops > 0 {
+            self.express_hops -= 1;
+        }
+        let expressive = laugh || self.express_hops > 0 || self.speech_hops < SHORT_WORD_HOPS;
+        let fail_open = (proximity || self.owner_hold_hops > 0) && expressive;
+        let energy_spike = speech && rms >= self.level * 1.6 && rms > self.rms_ema * 2.0;
+
+        if speech {
+            self.speech_hops = self.speech_hops.saturating_add(1);
+            self.silence_hops = 0;
+        } else {
+            self.silence_hops = self.silence_hops.saturating_add(1);
+        }
+        self.verify_hops = self.verify_hops.saturating_add(1);
+
+        let long_enough = self.speech_hops >= VETO_SPEECH_HOPS;
+        let neural_veto = self.neural_enrolled
+            && long_enough
+            && self.fail_streak >= VETO_FAILS
+            && self.neural_below()
+            && !fail_open;
+        let dsp_veto = !self.neural_enrolled
+            && long_enough
+            && !proximity
+            && frame.voiced
+            && frame_alike < 0.42
+            && !fail_open;
 
         let prev_state = self.state;
         match self.state {
-            GateState::Closed => {
-                self.foreign_hops = 0;
-                self.verify_hops = 0;
-                self.mute();
-                if inactive {
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    if self.silence_hops >= SILENCE_EXIT_HOPS {
-                        self.utterance_vetoed = false;
-                        self.speech_hops = 0;
-                        self.confirmed_score = None;
-                        self.reason = 5; // SILENCE — only when truly inactive
-                    }
-                } else {
-                    self.silence_hops = 0;
-                    if self.utterance_vetoed {
-                        self.reason = 12; // REJECT_COOLDOWN (still speaking, vetoed)
-                    }
-                }
-                if self.neural_enrolled {
-                    // Never open Closed→Locked on a score alone — that reused stale
-                    // CAM++ results across short utterances. Always re-buffer.
-                    if speech_start && !self.utterance_vetoed {
-                        self.confirm_hops = self.confirm_hops.saturating_add(1);
-                        if self.confirm_hops >= CANDIDATE_HOPS {
-                            self.state = GateState::Candidate;
-                            self.confirm_hops = 0;
-                            self.speech_hops = 0;
-                            self.verify_hops = 0;
-                            self.confirmed_score = None;
-                            self.utterance_id = self.utterance_id.wrapping_add(1);
-                            self.invalidate_neural();
-                            self.reason = 2; // PENDING / buffering
-                            self.mute();
-                        }
-                    } else {
-                        self.confirm_hops = 0;
-                    }
-                } else if dsp_owner {
-                    self.state = GateState::Confirming;
-                    self.confirm_hops = 1;
-                } else {
-                    self.confirm_hops = 0;
-                }
-            }
-            GateState::Confirming => {
-                self.mute();
-                if dsp_owner {
-                    self.confirm_hops = self.confirm_hops.saturating_add(1);
-                    if self.confirm_hops >= OPEN_CONFIRM_HOPS {
-                        self.state = GateState::Locked;
-                        self.confirm_hops = 0;
-                        self.open_exact();
-                    }
-                } else if !quiet && !frame.voiced {
-                    // freeze
-                } else {
-                    self.state = GateState::Closed;
-                    self.confirm_hops = 0;
-                }
-            }
-            GateState::Candidate => {
-                // Buffering — never audible. Keep alive after speech ends until Verifying.
-                self.mute();
-                self.verify_hops = self.verify_hops.saturating_add(1);
-                if self.owner_confirmed() {
+            GateState::Closed | GateState::Confirming | GateState::Candidate | GateState::Verifying => {
+                if speech && proximity {
                     self.state = GateState::Locked;
-                    self.reason = 1;
-                    self.foreign_hops = 0;
-                    self.silence_hops = 0;
-                    self.confirmed_score = self.neural_raw.or(self.neural);
-                    self.verify_hops = 0;
-                    self.open_exact();
-                } else if foreign_voiced {
-                    self.state = GateState::Rejected;
-                    self.reason = 3; // OTHER_SPEAKER_REJECTED
-                    self.utterance_vetoed = true;
-                    self.confirm_hops = 0;
-                    self.confirmed_score = None;
-                } else if speech {
-                    self.silence_hops = 0;
-                    self.confirm_hops = self.confirm_hops.saturating_add(1);
-                    if self.confirm_hops >= 2 {
-                        self.state = GateState::Verifying;
-                        self.confirm_hops = 0;
-                        self.reason = 4; // PENDING_VERIFICATION
-                        if !self.protect && soft_owner {
-                            self.open_exact();
-                        } else {
-                            self.mute();
-                        }
-                    }
-                } else if inactive {
-                    // Phrase ended early ("Oi") — still wait for CAM++, don't drop.
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    self.state = GateState::Verifying;
-                    self.reason = 4;
-                    self.mute();
-                }
-            }
-            GateState::Verifying => {
-                self.verify_hops = self.verify_hops.saturating_add(1);
-                if self.protect {
-                    self.mute();
-                } else if soft_owner || neural_ok == Some(true) {
-                    self.open_exact();
-                } else {
-                    self.mute();
-                }
-                // Confirm even after the phrase ended — delay line still holds PCM.
-                if self.owner_confirmed() {
-                    self.state = GateState::Locked;
-                    self.reason = 1;
-                    self.foreign_hops = 0;
-                    self.silence_hops = 0;
-                    self.utterance_vetoed = false;
-                    self.confirmed_score = self.neural_raw.or(self.neural);
-                    self.verify_hops = 0;
-                    self.open_exact();
-                } else if foreign_voiced {
-                    self.foreign_hops = self.foreign_hops.saturating_add(1);
-                    if self.foreign_hops >= VERIFY_FOREIGN_HOPS {
-                        self.state = GateState::Rejected;
-                        self.reason = 3; // CONFIRMED_OTHER only
-                        self.utterance_vetoed = true;
-                        self.foreign_hops = 0;
-                        self.confirmed_score = None;
-                        self.mute();
-                    }
-                } else if inactive {
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    self.foreign_hops = 0;
-                    if self.silence_hops >= VERIFY_GRACE_HOPS {
-                        // Not "other speaker" — not enough evidence for a short utt.
-                        self.state = GateState::Closed;
-                        self.reason = 9; // INSUFFICIENT_EVIDENCE
-                        self.silence_hops = 0;
-                        self.speech_hops = 0;
-                        self.verify_hops = 0;
-                        self.invalidate_neural();
-                        self.mute();
-                        // Do NOT set utterance_vetoed — owner may retry immediately.
-                    }
-                } else {
-                    // Still speaking: mid-band stays VERIFYING (uncertain ≠ other).
-                    self.foreign_hops = 0;
-                    self.silence_hops = 0;
-                    if self.verify_hops >= VERIFY_GRACE_HOPS {
-                        match self.neural_raw.or(self.neural) {
-                            Some(s) if !self.want_dual() && s >= neural_need - REVOKE_MARGIN => {
-                                self.state = GateState::Locked;
-                                self.reason = 1;
-                                self.confirmed_score = Some(s);
-                                self.verify_hops = 0;
-                                self.open_exact();
-                            }
-                            Some(s) if s < reject_line => {
-                                self.reason = 10;
-                            }
-                            Some(_) => {
-                                self.reason = 10; // collecting 2nd confirm / UNCERTAIN
-                            }
-                            None => {
-                                self.reason = 11; // WAITING_SCORE
-                            }
-                        }
-                    } else if self.neural.is_none() {
-                        self.reason = 4; // still PENDING_VERIFICATION
-                    } else if !self.owner_confirmed() {
-                        self.reason = 10; // dual wait or UNCERTAIN
-                    }
-                }
-            }
-            GateState::Locked => {
-                self.confirm_hops = 0;
-                self.verify_hops = self.verify_hops.saturating_add(1);
-                self.open_exact();
-                if self.neural_enrolled && self.should_revoke_lock() {
-                    let raw = self.neural_raw.unwrap_or(0.0);
-                    if raw < reject_line {
-                        self.state = GateState::Rejected;
-                        self.reason = 8; // SPEAKER_CHANGE
-                        self.utterance_vetoed = true;
-                    } else {
-                        self.state = GateState::Verifying;
-                        self.reason = 10; // LOW_CONFIDENCE
-                        self.pass_streak = 0;
-                    }
-                    self.foreign_hops = 0;
-                    self.confirmed_score = None;
-                    self.mute();
-                } else if inactive {
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    self.foreign_hops = 0;
-                    if self.silence_hops >= SILENCE_EXIT_HOPS {
-                        self.state = GateState::Holding;
-                        self.reason = 7; // UTTERANCE_FINISHED → hold
-                        self.silence_hops = 0;
-                    }
-                } else if leave_voiced {
-                    self.silence_hops = 0;
-                    self.foreign_hops = self.foreign_hops.saturating_add(1);
-                    let need = if self.neural_enrolled {
-                        LOCKED_FOREIGN_HOPS
-                    } else {
-                        FOREIGN_EXIT_HOPS
-                    };
-                    if self.foreign_hops >= need {
-                        self.state = GateState::Rejected;
-                        self.reason = 8; // SPEAKER_CHANGE
-                        self.foreign_hops = 0;
-                        self.utterance_vetoed = true;
-                        self.confirmed_score = None;
-                        self.mute();
-                    }
-                } else {
-                    self.silence_hops = 0;
-                    self.foreign_hops = 0;
-                }
-            }
-            GateState::Holding => {
-                self.verify_hops = self.verify_hops.saturating_add(1);
-                self.open_exact();
-                if self.neural_enrolled && self.should_revoke_lock() {
-                    self.state = GateState::Rejected;
-                    self.reason = 8;
-                    self.utterance_vetoed = true;
-                    self.confirmed_score = None;
-                    self.mute();
-                } else if self.neural_enrolled && speech_start {
-                    // Pause still inside the ~300 ms hold: resume, but keep scoring.
-                    self.state = GateState::Locked;
-                    self.silence_hops = 0;
-                    self.speech_hops = 0;
                     self.utterance_id = self.utterance_id.wrapping_add(1);
                     self.reason = 1;
+                    self.utterance_vetoed = false;
+                    self.confirmed_score = self.neural_raw.or(self.neural);
                     self.open_exact();
-                } else if !self.neural_enrolled && dsp_owner {
-                    self.state = GateState::Locked;
-                    self.silence_hops = 0;
-                } else if inactive {
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    if self.silence_hops >= HOLD_EXIT_HOPS {
-                        self.state = GateState::Releasing;
-                        self.reason = 7;
-                        self.mute();
-                    }
-                } else if leave_voiced {
-                    self.foreign_hops = self.foreign_hops.saturating_add(1);
-                    if self.foreign_hops >= 5 {
-                        self.state = GateState::Rejected;
-                        self.utterance_vetoed = true;
-                        self.confirmed_score = None;
-                        self.reason = 8;
-                        self.mute();
-                    }
                 } else {
-                    // Unvoiced continuation of same utterance.
+                    self.state = GateState::Closed;
+                    self.mute();
+                    if inactive {
+                        self.reason = 5;
+                    }
+                }
+            }
+            GateState::Locked | GateState::Holding => {
+                if neural_veto || dsp_veto {
+                    self.state = GateState::Rejected;
+                    self.reason = 3;
+                    self.utterance_vetoed = true;
+                    self.confirmed_score = None;
+                    self.owner_hold_hops = 0;
+                    self.express_hops = 0;
+                    self.mute();
+                } else if self.silence_hops >= HOLD_EXIT_HOPS {
+                    self.state = GateState::Releasing;
+                    self.reason = 7;
+                    self.mute();
+                } else if self.silence_hops >= PAUSE_HOPS {
+                    self.state = GateState::Holding;
+                    self.reason = 7;
+                    self.open_exact();
+                } else {
                     self.state = GateState::Locked;
-                    self.silence_hops = 0;
-                    self.foreign_hops = 0;
                     self.reason = 1;
+                    self.utterance_vetoed = false;
+                    self.confirmed_score = self.neural_raw.or(self.neural);
+                    self.open_exact();
                 }
             }
             GateState::Rejected => {
                 self.mute();
                 self.utterance_vetoed = true;
                 self.confirmed_score = None;
-                // NEVER Rejected→Locked on the same utterance. Cooldown → Closed,
-                // then a new Candidate bumps utterance_id.
-                if inactive {
-                    self.silence_hops = self.silence_hops.saturating_add(1);
-                    if self.silence_hops >= REJECT_COOLDOWN_HOPS {
-                        self.state = GateState::Closed;
-                        self.silence_hops = 0;
-                        self.reason = 12; // REJECT_COOLDOWN done → Closed
-                    }
+                if energy_spike {
+                    self.state = GateState::Locked;
+                    self.utterance_id = self.utterance_id.wrapping_add(1);
+                    self.reason = 1;
+                    self.utterance_vetoed = false;
+                    self.speech_hops = 1;
+                    self.fail_streak = 0;
+                    self.pass_streak = 0;
+                    self.open_exact();
+                } else if self.silence_hops >= REJECT_COOLDOWN_HOPS {
+                    self.state = GateState::Closed;
+                    self.reason = 12;
+                    self.speech_hops = 0;
+                    self.fail_streak = 0;
                 } else {
-                    self.silence_hops = 0;
                     self.reason = 3;
                 }
             }
             GateState::Releasing => {
-                self.mute();
-                // Neural enrolled: finish release to Closed; next speech starts
-                // a new utterance. Do not jump back to Locked mid-release.
-                if !self.neural_enrolled && dsp_owner {
-                    self.state = GateState::Confirming;
-                    self.confirm_hops = 1;
-                } else if inactive {
+                if speech && (proximity || energy_spike) {
+                    self.state = GateState::Locked;
+                    self.utterance_id = self.utterance_id.wrapping_add(1);
+                    self.reason = 1;
+                    self.utterance_vetoed = false;
+                    self.open_exact();
+                } else {
+                    self.mute();
                     if self.gain < 0.02 {
                         self.state = GateState::Closed;
-                        self.confidence *= 0.85;
-                        self.confirmed_score = None;
-                        self.reason = 5;
-                    }
-                } else if self.neural_enrolled {
-                    // Still energy during release — finish closing with cooldown label.
-                    self.reason = 7;
-                    if self.gain < 0.02 {
-                        self.state = GateState::Closed;
-                        self.confirmed_score = None;
                         self.reason = 5;
                     }
                 }
             }
+        }
+
+        if matches!(self.state, GateState::Locked | GateState::Holding) {
+            self.owner_hold_hops = OWNER_HOLD_HOPS;
+        } else if self.owner_hold_hops > 0 {
+            self.owner_hold_hops -= 1;
+        }
+        if self.silence_hops >= PAUSE_HOPS {
+            self.speech_hops = 0;
+            self.fail_streak = 0;
+            self.pass_streak = 0;
+            self.utterance_vetoed = false;
         }
         self.push_diag(prev_state, self.state);
     }
@@ -1459,13 +1169,23 @@ mod tests {
     }
 
     #[test]
-    fn same_f0_different_timbre_is_blocked() {
+    fn far_field_other_male_stays_closed() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 130.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm(&mut gate, &print, 0.85);
-        let ratio = kept_ratio(&mut gate, &other_male(sr, 130.0, 1.5));
-        assert!(ratio < 0.35, "other male at same f0 kept {ratio}");
+        let far: Vec<f32> = other_male(sr, 130.0, 1.5).into_iter().map(|x| x * 0.12).collect();
+        let ratio = kept_ratio(&mut gate, &far);
+        assert!(ratio < 0.15, "far-field other male leaked {ratio}");
+    }
+
+    #[test]
+    fn delay_line_is_about_thirty_ms() {
+        let sr = 48_000.0;
+        let gate = VoiceGate::new(sr);
+        let ms = gate.delay_ms();
+        assert!((ms - 30.0).abs() < 1.5, "lookahead {ms} ms");
+        assert!((gate.buffer_capacity_ms() - 30.0).abs() < 1.5);
     }
 
     #[test]
@@ -1477,7 +1197,7 @@ mod tests {
         // Short bursts (~40 ms) of quiet other speech — must stay closed.
         let mut samples = Vec::new();
         for _ in 0..8 {
-            samples.extend(quiet_voice(sr, 150.0, 0.04, 0.35));
+            samples.extend(quiet_voice(sr, 150.0, 0.04, 0.12));
             samples.extend(std::iter::repeat(0.0).take((sr * 0.2) as usize));
         }
         let ratio = kept_ratio(&mut gate, &samples);
@@ -1521,12 +1241,13 @@ mod tests {
     }
 
     #[test]
-    fn a_much_lower_voice_is_closed() {
+    fn close_mic_low_pitch_stays_open() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 220.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm(&mut gate, &print, 0.85);
-        assert!(kept_ratio(&mut gate, &voice(sr, 110.0, 1.2)) < 0.35);
+        let ratio = kept_ratio(&mut gate, &voice(sr, 110.0, 1.2));
+        assert!(ratio > 0.55, "voz mais grave no mic próximo cortada ({ratio})");
     }
 
     #[test]
@@ -1609,99 +1330,28 @@ mod tests {
         );
     }
 
-    /// Protected: silence until CAM++ confirms — no provisional leak.
+    fn feed(gate: &mut VoiceGate, samples: &[f32], score: Option<f32>) -> u32 {
+        let mut audible = 0u32;
+        for &x in samples {
+            if let Some(s) = score {
+                gate.set_neural(Some(s));
+            }
+            if gate.process(x, x).abs() > 1e-4 {
+                audible += 1;
+            }
+        }
+        audible
+    }
+
+    /// Fail-open: close-mic speech is audible in <40 ms without waiting for CAM++.
     #[test]
-    fn protected_stays_silent_until_neural() {
+    fn fail_open_on_proximity_without_neural() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
         gate.set_neural(None);
         let phrase = voice(sr, 160.0, 0.5);
-        let mut leaked = 0;
-        for &x in &phrase {
-            let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                leaked += 1;
-            }
-        }
-        assert_eq!(leaked, 0, "protected leaked {leaked} samples before neural");
-        assert!(matches!(
-            gate.state,
-            GateState::Candidate | GateState::Verifying | GateState::Closed
-        ));
-    }
-
-    /// After neural confirm, delayed PCM is bit-exact.
-    #[test]
-    fn protected_opens_bit_exact_after_confirm() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.5, true);
-        let phrase = voice(sr, 160.0, 1.4);
-        let delay = gate.delay_len;
-        for &x in &phrase[..phrase.len() / 4] {
-            gate.set_neural(None);
-            let _ = gate.process(x, x);
-        }
-        for &x in &phrase[phrase.len() / 4..phrase.len() / 2] {
-            gate.set_neural(Some(0.55));
-            let _ = gate.process(x, x);
-        }
-        assert!(
-            matches!(gate.state, GateState::Locked | GateState::Holding),
-            "got {:?}",
-            gate.state
-        );
-        let start = phrase.len() / 2;
-        for i in start..phrase.len() {
-            gate.set_neural(Some(0.55));
-            let y = gate.process(phrase[i], phrase[i]);
-            if matches!(gate.state, GateState::Locked | GateState::Holding) && gate.gain >= 1.0 - 1e-6 {
-                let src = phrase[i - delay];
-                assert!((y - src).abs() < 1e-6, "not bit-exact at {i}");
-            }
-        }
-    }
-
-    #[test]
-    fn neural_veto_rejects_and_stays_closed() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.8, true);
-        for &x in &voice(sr, 160.0, 0.2) {
-            gate.set_neural(None);
-            let _ = gate.process(x, x);
-        }
-        for &x in &voice(sr, 160.0, 0.6) {
-            gate.set_neural(Some(0.05));
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4, "leak during reject");
-        }
-        assert!(
-            matches!(gate.state, GateState::Rejected | GateState::Closed | GateState::Verifying | GateState::Candidate),
-            "got {:?}",
-            gate.state
-        );
-        // Soft speech must not reopen without good score.
-        for &x in &voice(sr, 160.0, 0.3) {
-            gate.set_neural(Some(0.05));
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4);
-        }
-        assert!(!matches!(gate.state, GateState::Locked | GateState::Holding));
-    }
-
-    #[test]
-    fn fast_mode_may_soft_open_before_score() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.4, false);
-        gate.set_neural(None);
-        let phrase = voice(sr, 160.0, 0.7);
         let mut first_open = None;
         for (i, &x) in phrase.iter().enumerate() {
             let y = gate.process(x, x);
@@ -1709,172 +1359,144 @@ mod tests {
                 first_open = Some(i);
             }
         }
-        // Fast can open; Protected must not — this is Fast.
-        assert!(first_open.is_some(), "fast mode should soft-open on own voice");
+        let first = first_open.expect("gate must open on proximity");
+        assert!(
+            first as f32 / sr < 0.04,
+            "open took {:.1} ms",
+            first as f32 * 1000.0 / sr
+        );
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+        assert!((gate.delay_ms() - 30.0).abs() < 1.5);
     }
 
-    /// Short "Oi" (~300 ms): hold-grow until late CAM++ confirm, then emit start.
     #[test]
-    fn protected_short_utt_preserved_after_late_confirm() {
+    fn locked_output_is_bit_exact_with_thirty_ms_line() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        let oi = voice(sr, 160.0, 0.30);
-        let silence = vec![0.0f32; (sr * 0.45) as usize];
-        let mut leaked = 0u32;
-        for &x in oi.iter().chain(silence.iter()) {
-            gate.set_neural(None);
-            let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                leaked += 1;
-            }
-        }
-        assert_eq!(leaked, 0, "short utt leaked before confirm");
-        assert!(
-            matches!(gate.state, GateState::Verifying | GateState::Candidate),
-            "expected verifying short utt, got {:?}",
-            gate.state
-        );
-        let held = gate.delay.len();
-        // From empty delay, hold-grow keeps the whole oi+tail (not a primed 620 ms line).
-        assert!(
-            held >= oi.len() && held > (sr * 0.55) as usize,
-            "delay should retain short phrase: held={held} oi={}",
-            oi.len()
-        );
-        // Late confirm while still silent — must open and flush held PCM.
-        let mut opened = 0u32;
-        let flush = vec![0.0f32; held + gate.delay_len];
-        for &x in &flush {
+        let phrase = voice(sr, 160.0, 1.2);
+        let delay = gate.delay_len;
+        for &x in &phrase[..phrase.len() / 3] {
             gate.set_neural(Some(0.55));
-            let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                opened += 1;
-            }
-        }
-        assert!(
-            matches!(gate.state, GateState::Locked | GateState::Holding | GateState::Releasing | GateState::Closed),
-            "got {:?}",
-            gate.state
-        );
-        assert!(
-            opened > (sr * 0.12) as u32,
-            "expected flushed short phrase energy, opened={opened}"
-        );
-        // After flush + silence the gate may already be Closed (reason SILENCE/FINISHED);
-        // the important part is that authorized audio was emitted.
-        assert!(opened > 0);
-    }
-
-    #[test]
-    fn short_utt_insufficient_is_not_reject() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.5, true);
-        let oi = voice(sr, 160.0, 0.25);
-        for &x in &oi {
-            gate.set_neural(None);
             let _ = gate.process(x, x);
         }
-        // ~1.2 s silence → VERIFY_GRACE → INSUFFICIENT_EVIDENCE (reason 9), not Rejected.
-        let silence = vec![0.0f32; (sr * 1.3) as usize];
-        for &x in &silence {
-            gate.set_neural(None);
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4);
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+        for i in phrase.len() / 3..phrase.len() {
+            gate.set_neural(Some(0.55));
+            let y = gate.process(phrase[i], phrase[i]);
+            if gate.authorized() {
+                let src = phrase[i - delay];
+                assert!((y - src).abs() < 1e-6, "not bit-exact at {i}");
+            }
         }
+    }
+
+    #[test]
+    fn short_oi_is_audible() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.5, true);
+        let oi = voice(sr, 160.0, 0.28);
+        let opened = feed(&mut gate, &oi, None);
+        assert!(
+            opened > (sr * 0.12) as u32,
+            "short Oi was eaten ({opened} samples)"
+        );
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+        assert!(
+            gate.delay.len() <= gate.delay_len + 8,
+            "hold-grow still active: {}",
+            gate.delay.len()
+        );
+    }
+
+    #[test]
+    fn short_utt_without_score_is_not_reject() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.5, true);
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.25), None);
+        let silence = vec![0.0f32; (sr * 0.8) as usize];
+        let _ = feed(&mut gate, &silence, None);
         assert_eq!(gate.state, GateState::Closed);
-        assert_eq!(gate.reason, 9, "INSUFFICIENT_EVIDENCE");
         assert!(!gate.utterance_vetoed);
     }
 
     #[test]
-    fn stale_infer_cannot_open_new_utterance() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.5, true);
-        // Fake a previous high score.
-        gate.set_neural_scored(Some(0.90), 1);
-        let oi = voice(sr, 160.0, 0.35);
-        let mut leaked = 0u32;
-        for &x in &oi {
-            // Re-apply the same stale infer id after Candidate invalidates.
-            gate.set_neural_scored(Some(0.90), 1);
-            let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                leaked += 1;
-            }
-        }
-        assert_eq!(leaked, 0, "stale infer opened gate");
-        assert!(
-            !matches!(gate.state, GateState::Locked | GateState::Holding),
-            "stale score locked: {:?}",
-            gate.state
-        );
-        // Fresh inference must be allowed to confirm.
-        for &x in &voice(sr, 160.0, 0.2) {
-            gate.set_neural_scored(Some(0.55), 2);
-            let _ = gate.process(x, x);
-        }
-        assert!(
-            matches!(gate.state, GateState::Locked | GateState::Holding),
-            "fresh infer should lock, got {:?}",
-            gate.state
-        );
-    }
-
-    #[test]
-    fn slider_only_does_not_hard_reset_verifying() {
+    fn slider_only_does_not_hard_reset_lock() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.3, true);
-        for &x in &voice(sr, 160.0, 0.4) {
-            gate.set_neural(None);
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.4), Some(0.55));
         let before = gate.state;
-        assert!(matches!(before, GateState::Candidate | GateState::Verifying));
-        arm_neural(&mut gate, &print, 0.9, true); // exigência only
+        assert!(matches!(before, GateState::Locked | GateState::Holding));
+        arm_neural(&mut gate, &print, 0.9, true);
         assert_eq!(gate.state, before, "slider must not reset utterance");
     }
 
-    /// Video utt 18: Rejected must not jump to Locked on a later high score.
     #[test]
-    fn rejected_cannot_reopen_same_utterance() {
+    fn two_low_scores_after_500ms_veto() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.0, false); // Fast 0%
-        // Need sustained CONFIRMED_OTHER (score << reject) for ≥500 ms + foreign hops.
-        for &x in &voice(sr, 160.0, 1.2) {
-            gate.set_neural(Some(0.05));
-            let _ = gate.process(x, x);
-        }
+        arm_neural(&mut gate, &print, 1.0, true);
+        let opened = feed(&mut gate, &voice(sr, 160.0, 0.35), None);
+        assert!(opened > 0, "must fail-open before CAM++");
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.90), Some(0.12));
+        assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
+        let tail = feed(&mut gate, &voice(sr, 160.0, 0.4), Some(0.12));
+        assert_eq!(tail, 0, "veto must stay closed on the same talker");
+        assert!(!matches!(gate.state, GateState::Locked | GateState::Holding));
+    }
+
+    #[test]
+    fn pause_clears_veto_so_owner_can_return() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.5, true);
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.9), Some(0.05));
+        assert_eq!(gate.state, GateState::Rejected);
+        let silence = vec![0.0f32; (sr * 0.30) as usize];
+        let _ = feed(&mut gate, &silence, None);
+        assert!(!gate.utterance_vetoed);
+        let opened = feed(&mut gate, &voice(sr, 160.0, 0.4), Some(0.58));
+        assert!(opened > (sr * 0.08) as u32, "owner stayed muted after pause");
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+    }
+
+    #[test]
+    fn energy_spike_reopens_over_impostor() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.5, true);
+        let quiet: Vec<f32> = voice(sr, 160.0, 0.9).into_iter().map(|x| x * 0.35).collect();
+        let _ = feed(&mut gate, &quiet, Some(0.05));
+        assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
+        let loud: Vec<f32> = voice(sr, 160.0, 0.5).into_iter().map(|x| x * 3.0).collect();
+        let opened = feed(&mut gate, &loud, Some(0.58));
+        assert!(opened > (sr * 0.05) as u32, "barge-in stayed muted ({opened})");
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
+    }
+
+    #[test]
+    fn rejected_same_energy_does_not_reopen_on_high_score() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.0, false);
+        let _ = feed(&mut gate, &voice(sr, 160.0, 1.0), Some(0.05));
         assert_eq!(gate.state, GateState::Rejected, "got {:?}", gate.state);
         let utt = gate.utterance_id;
-        let hops_at_reject = gate.speech_hops;
-        for &x in &voice(sr, 160.0, 0.6) {
-            gate.set_neural(Some(0.55));
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4, "rejected utterance must stay muted");
-            assert_ne!(gate.state, GateState::Locked);
-            assert_eq!(gate.utterance_id, utt);
-        }
-        assert!(
-            matches!(gate.state, GateState::Rejected | GateState::Closed),
-            "got {:?}",
-            gate.state
-        );
-        assert!(
-            gate.speech_hops <= hops_at_reject + 2,
-            "speech_hops must freeze while Rejected: {} → {}",
-            hops_at_reject,
-            gate.speech_hops
-        );
+        let leaked = feed(&mut gate, &voice(sr, 160.0, 0.5), Some(0.55));
+        assert_eq!(leaked, 0, "same-energy impostor reopened");
+        assert_ne!(gate.state, GateState::Locked);
+        assert_eq!(gate.utterance_id, utt);
     }
 
     #[test]
@@ -1883,12 +1505,8 @@ mod tests {
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.0, true);
-        for &x in &voice(sr, 160.0, 0.5) {
-            gate.set_neural(Some(0.55));
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.5), Some(0.55));
         assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
-        // Same infer_id reapplied (audio callback) must not look like 2 failures.
         let dip_id = gate.last_infer_id;
         for &x in &voice(sr, 160.0, 0.25) {
             gate.set_neural_scored(Some(0.271), dip_id);
@@ -1903,145 +1521,45 @@ mod tests {
     }
 
     #[test]
-    fn waiting_score_is_not_other_speaker() {
+    fn waiting_score_stays_open() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        for &x in &voice(sr, 160.0, 1.2) {
-            gate.set_neural(None);
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4);
-        }
-        assert!(
-            matches!(gate.state, GateState::Verifying | GateState::Candidate),
-            "got {:?}",
-            gate.state
-        );
-        assert!(
-            matches!(gate.reason, 4 | 11),
-            "expected PENDING/WAITING_SCORE, got {}",
-            gate.reason
-        );
+        let opened = feed(&mut gate, &voice(sr, 160.0, 1.0), None);
+        assert!(opened > (sr * 0.4) as u32, "waiting for CAM++ muted the owner");
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
         assert_ne!(gate.reason, 3);
     }
 
-    /// Mid-band cosine (below accept, above reject) must NOT become OTHER_SPEAKER.
-    #[test]
-    fn uncertain_mid_band_does_not_reject_owner() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.0, true); // need≈0.30, reject≈0.12
-        for &x in &voice(sr, 160.0, 1.5) {
-            gate.set_neural(Some(0.22)); // classic false-"other" band under old 0.28 floor
-            let _ = gate.process(x, x);
-        }
-        assert!(
-            !matches!(gate.state, GateState::Rejected),
-            "0.22 must be UNCERTAIN not OTHER, got {:?} r{}",
-            gate.state,
-            gate.reason
-        );
-        assert!(
-            matches!(gate.state, GateState::Verifying | GateState::Candidate | GateState::Locked),
-            "got {:?}",
-            gate.state
-        );
-    }
-
-    /// A short breath (<300 ms) must not drop an authorized owner.
     #[test]
     fn session_keeps_owner_open_across_pause() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.3, true);
-        let phrase = voice(sr, 160.0, 0.8);
-        for &x in &phrase {
-            gate.set_neural(Some(0.62));
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.8), Some(0.62));
         assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
         let silence = vec![0.0f32; (sr * 0.12) as usize];
-        for &x in &silence {
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &silence, None);
         assert!(
             matches!(gate.state, GateState::Locked | GateState::Holding),
             "brief pause should keep session, got {:?}",
             gate.state
         );
-        let next = voice(sr, 160.0, 1.4);
-        let mut opened = 0u32;
-        for &x in &next {
-            gate.set_neural(Some(0.58));
-            let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                opened += 1;
-            }
-        }
-        assert!(
-            matches!(gate.state, GateState::Locked | GateState::Holding),
-            "resume must stay authorized, got {:?}",
-            gate.state
-        );
+        let opened = feed(&mut gate, &voice(sr, 160.0, 1.0), Some(0.58));
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
         assert!(opened > (sr * 0.08) as u32, "next phrase was muted ({opened} samples)");
     }
 
-    /// Protected: 0.41 passes thresh (0.39) but not +0.06, and speech < 1.4 s.
     #[test]
-    fn protect_requires_second_long_window_without_strong_margin() {
+    fn owner_high_score_stays_locked() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        for &x in &voice(sr, 160.0, 0.80) {
-            gate.set_neural(Some(0.41));
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4, "protected leaked before dual confirm");
-        }
-        assert!(
-            !matches!(gate.state, GateState::Locked | GateState::Holding),
-            "need 2nd long window or +0.06 margin, got {:?}",
-            gate.state
-        );
-    }
-
-    /// 0.1.20 video: one 780 ms peak of 0.38 must not lock Protected at high exigência.
-    #[test]
-    fn protect_does_not_lock_on_single_barely_passing_score() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 1.0, true); // 100% · need ≈ 0.48
-        for &x in &voice(sr, 160.0, 0.80) {
-            gate.set_neural(Some(0.40)); // above old 0.36 cap, below 0.48 and 0.48+0.06
-            let y = gate.process(x, x);
-            assert!(y.abs() < 1e-4, "protected leaked on a short impostor peak");
-        }
-        assert!(
-            !matches!(gate.state, GateState::Locked | GateState::Holding),
-            "single 0.40 must not lock at 100%: {:?}",
-            gate.state
-        );
-    }
-
-    #[test]
-    fn protect_locks_on_strong_margin() {
-        let sr = 48_000.0;
-        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
-        let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.5, true); // need ≈ 0.39, strong ≥ 0.45
-        for &x in &voice(sr, 160.0, 0.5) {
-            gate.set_neural(Some(0.55));
-            let _ = gate.process(x, x);
-        }
-        assert!(
-            matches!(gate.state, GateState::Locked | GateState::Holding),
-            "got {:?}",
-            gate.state
-        );
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.5), Some(0.55));
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
     }
 
     #[test]
@@ -2049,21 +1567,17 @@ mod tests {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
-        arm_neural(&mut gate, &print, 0.0, true); // need ≈ 0.30
-        for &x in &voice(sr, 160.0, 0.5) {
-            gate.set_neural(Some(0.55));
-            let _ = gate.process(x, x);
-        }
+        arm_neural(&mut gate, &print, 0.0, true);
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.65), Some(0.55));
         assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
         let base = gate.last_infer_id;
-        for &x in &voice(sr, 160.0, 0.08) {
+        for &x in &voice(sr, 160.0, 0.12) {
             gate.set_neural_scored(Some(0.22), base + 1);
             let _ = gate.process(x, x);
         }
-        for &x in &voice(sr, 160.0, 0.08) {
+        for &x in &voice(sr, 160.0, 0.12) {
             gate.set_neural_scored(Some(0.20), base + 2);
-            let y = gate.process(x, x);
-            let _ = y;
+            let _ = gate.process(x, x);
         }
         assert!(
             !matches!(gate.state, GateState::Locked | GateState::Holding),
@@ -2073,33 +1587,53 @@ mod tests {
     }
 
     #[test]
-    fn long_pause_does_not_let_impostor_ride() {
+    fn long_pause_then_low_score_is_vetoed() {
         let sr = 48_000.0;
         let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
         let mut gate = VoiceGate::new(sr);
         arm_neural(&mut gate, &print, 0.5, true);
-        for &x in &voice(sr, 160.0, 0.6) {
-            gate.set_neural(Some(0.62));
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.6), Some(0.62));
         let silence = vec![0.0f32; (sr * 0.55) as usize];
-        for &x in &silence {
-            let _ = gate.process(x, x);
-        }
+        let _ = feed(&mut gate, &silence, None);
         assert!(
             !matches!(gate.state, GateState::Locked | GateState::Holding),
             "0.55 s pause must drop hold, got {:?}",
             gate.state
         );
-        let mut leaked = 0u32;
-        for &x in &voice(sr, 160.0, 0.8) {
-            gate.set_neural(Some(0.22));
+        let phrase = voice(sr, 160.0, 0.9);
+        let mut late = 0u32;
+        let cut = (sr * 0.70) as usize;
+        for (i, &x) in phrase.iter().enumerate() {
+            gate.set_neural(Some(0.12));
             let y = gate.process(x, x);
-            if y.abs() > 1e-4 {
-                leaked += 1;
+            if i >= cut && y.abs() > 1e-4 {
+                late += 1;
             }
         }
-        assert_eq!(leaked, 0, "impostor rode owner hold ({leaked} samples)");
+        assert_eq!(late, 0, "impostor still open after two CAM++ fails");
         assert!(!matches!(gate.state, GateState::Locked | GateState::Holding));
+    }
+
+    #[test]
+    fn laugh_unvoiced_burst_stays_open() {
+        let sr = 48_000.0;
+        let print = build_voice_print(&voice(sr, 160.0, 2.5), sr).expect("print");
+        let mut gate = VoiceGate::new(sr);
+        arm_neural(&mut gate, &print, 0.5, true);
+        let _ = feed(&mut gate, &voice(sr, 160.0, 0.4), Some(0.55));
+        let n = (sr * 0.5) as usize;
+        let mut laugh = Vec::with_capacity(n);
+        let mut state = 0xC0FFEEu32;
+        for i in 0..n {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = (state as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            let t = i as f32 / sr;
+            laugh.push(noise * 0.55 * (0.6 + 0.4 * (std::f32::consts::TAU * 8.0 * t).sin()));
+        }
+        let opened = feed(&mut gate, &laugh, Some(0.08));
+        assert!(opened > (sr * 0.20) as u32, "laugh was gated ({opened})");
+        assert!(matches!(gate.state, GateState::Locked | GateState::Holding));
     }
 }

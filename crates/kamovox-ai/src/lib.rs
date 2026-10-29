@@ -14,7 +14,8 @@ pub use realtime::{Realtime, Stats, Timing};
 pub use speaker::{
     cosine, flatten_gallery, max_cosine, max_cosine_flat, thresh_for_strict, to_16k, compact_speech,
     EnrollResult, SpeakerEmbedder, SpeechBuffer, EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS,
-    LIVE_SPEECH_MS, MAX_GALLERY, SHORT_SPEECH_MS, SILENCE_RESET_MS, SPEAKER_SR, SPEECH_HANGOVER_MS,
+    LIVE_SCORE_MS, LIVE_SPEECH_MS, MAX_GALLERY, MAX_PROTOTYPES, SHORT_SPEECH_MS, SILENCE_RESET_MS,
+    SPEAKER_SR, SPEECH_HANGOVER_MS,
 };
 
 #[cfg(test)]

@@ -22,8 +22,8 @@ use tuner::{Character, Tuner};
 pub use vocoder::Carrier;
 use vocoder::Vocoder;
 pub use voice_print::{
-    build_voice_print, GateEvent, GatePhase, VoicePrint, LOOKAHEAD_FAST_MS, LOOKAHEAD_PROTECTED_MS,
-    PRINT_BANDS,
+    build_voice_print, GateEvent, GatePhase, VoicePrint, LOOKAHEAD_FAST_MS, LOOKAHEAD_MS,
+    LOOKAHEAD_PROTECTED_MS, PRINT_BANDS,
 };
 pub use voices::Preset;
 use voices::VoiceStage;

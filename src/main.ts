@@ -62,7 +62,7 @@ interface Params {
   voiceNeuralHi: number;
   /** Sustained cosine below this ⇒ CONFIRMED_OTHER. */
   voiceNeuralReject: number;
-  /** true = Protegido (confirma antes de transmitir); false = Rápido. */
+  /** Kept for diagnostics; both modes share the 30 ms fail-open line. */
   voiceProtect: boolean;
   /** Ten gains in dB, 20 Hz through 16 kHz. */
   eq: number[];
@@ -2053,7 +2053,7 @@ function micSoundControls() {
   const voiceGateBlock = beta
     ? `
     <h2>Só a minha voz ${betaTag()}</h2>
-    <p class="section-hint">Depois da primeira confirmação, a sua voz continua aberta entre as frases. Regrave nesta versão — a biometria agora guarda várias impressões (curtas e longas).</p>
+    <p class="section-hint">A sua voz sai na hora (~30 ms). O CAM++ só fecha se outra pessoa falar de verdade. Regrave nesta versão — a biometria guarda até 5 impressões (normal, grossa, fina, risada).</p>
     <div class="group">
       ${switchRow("voice-gate", "Usar só a minha voz", p.voicePitch > 0
         ? (p.voiceEmbed.length === 512
@@ -2065,23 +2065,23 @@ function micSoundControls() {
         icon: "voices",
         tone: "tone-teal",
         beta: true,
-        help: "Na primeira frase o modo Protegido espera a biometria (~0,4 s) para não vazar outra voz. Depois disso a sessão fica aberta nas pausas da conversa e só fecha se aparecer outra pessoa de verdade. Regrave a voz nesta versão.",
+        help: "Abre na hora quando você fala no microfone. Palavras curtas, risadas e mudanças de tom não são cortadas. Outra voz (vídeo, TV) é vetada pelo CAM++ depois de ~0,5 s. Regrave a voz nesta versão.",
       })}
       <div class="row">
-        <div class="label"><span class="title">Gravação</span><small>Fale ~15 s perto do mic · regrave nesta versão (galeria curta+longa)</small></div>
+        <div class="label"><span class="title">Gravação</span><small>15 s: fale normal, depois grosso/fino e uma risada · regrave nesta versão</small></div>
         <button type="button" class="btn" id="voice-print">${icon("mic")}Gravar minha voz</button>
       </div>
       <div class="${p.voicePitch > 0 && p.voiceEmbed.length === 512 ? "" : "disabled"}">
         ${switchRow(
           "voice-protect",
           "Modo Protegido",
-          p.voiceProtect ? "Confirma antes de transmitir · ~0,6 s" : "Rápido · pode vazar o início",
+          p.voiceProtect ? "Veto CAM++ ativo · delay fixo 30 ms" : "Mesmo delay 30 ms · veto igual",
           p.voiceProtect,
           {
             icon: "mic",
             tone: "tone-teal",
             beta: true,
-            help: "Desative para o modo Rápido (menor latência, abertura provisória). Protegido é o recomendado contra YouTube / outra voz perto do mic.",
+            help: "Os dois modos agora usam delay fixo de 30 ms e abrem na hora. O CAM++ só veta outra voz após ~0,5 s e duas leituras baixas.",
           },
         )}
       </div>
@@ -2090,7 +2090,7 @@ function micSoundControls() {
           id: "voice-strict",
           label: "Exigência da biometria",
           hint: "0% folga para a sua voz · 100% limiar ~0,50 contra vídeo/TV",
-          help: "0% aceita a sua voz com folga. 100% sobe o cosseno até ~0,50 para não abrir com YouTube ou outra pessoa. Regrave se mudar de microfone ou de sala.",
+          help: "0% aceita a sua voz com folga. 100% sobe o cosseno até ~0,50 para o veto fechar YouTube ou outra pessoa. Regrave se mudar de microfone ou de sala.",
           min: 0,
           max: 100,
           step: 1,
@@ -2542,9 +2542,9 @@ async function ensureSpeakerModel(): Promise<boolean> {
 function openVoicePrint() {
   calPurpose = "print";
   $("#cal-title").textContent = "Gravar a minha voz";
-  $(".cal-kicker").textContent = "Fale sozinha por uns 15 segundos";
+  $(".cal-kicker").textContent = "15 segundos: voz normal, depois grossa ou fina, e uma risada";
   $(".cal-script").textContent =
-    "Vou falar do meu dia com calma, subindo e baixando um pouco a voz, fazendo pergunta e respondendo, para o programa aprender meu tom, minha entonação e meu jeito de falar. Quem estiver por perto fica em silêncio o tempo todo.";
+    "Vou falar do meu dia com a voz normal, depois repetir uma frase mais grossa e outra mais fina, e no fim dar uma risada curta, para o programa gravar vários jeitos da minha voz. Quem estiver por perto fica em silêncio o tempo todo.";
   prepareCalibration();
   const err = $("#cal-error");
   const start = $<HTMLButtonElement>("#cal-start");

@@ -22,10 +22,14 @@ pub const EMBED_DIM: usize = 512;
 pub const FIRST_SPEECH_MS: u32 = 280;
 /// Absolute minimum for a short-utterance attempt ("Oi" / "Olá").
 pub const SHORT_SPEECH_MS: u32 = 220;
-/// Sliding window of compacted speech for live scores.
-pub const LIVE_SPEECH_MS: u32 = 1_800;
-/// How often to refresh the live cosine (ms) after the first score of an utterance.
-pub const LIVE_PERIOD_MS: u32 = 400;
+/// Ring buffer of compacted active speech for the live worker.
+pub const LIVE_SPEECH_MS: u32 = 1_200;
+/// CAM++ scores the last ~900 ms of that ring (not the whole 1.2 s).
+pub const LIVE_SCORE_MS: u32 = 900;
+/// How often to refresh the live cosine while speech is active.
+pub const LIVE_PERIOD_MS: u32 = 250;
+/// Owner prototypes kept after enrollment (normal / thick / thin / laugh).
+pub const MAX_PROTOTYPES: usize = 5;
 /// Keep frozen speech after silence so short phrases can still be scored.
 pub const SILENCE_RESET_MS: u32 = 1_600;
 /// Quiet frames shorter than this are holes inside the same utterance.
@@ -47,11 +51,11 @@ pub struct SpeakerEmbedder {
     output: String,
 }
 
-/// Enrollment centroid + gallery templates + slider calibration from short self-scores.
+/// Owner prototype bank + slider calibration from leave-one-out max-cosine.
 #[derive(Clone, Debug)]
 pub struct EnrollResult {
     pub embed: Vec<f32>,
-    /// Extra templates (each 512-d). Live score = max cosine vs centroid+gallery.
+    /// Extra L2 prototypes (each 512-d). Live score = max cosine vs embed+gallery.
     pub gallery: Vec<Vec<f32>>,
     /// Cosine at strict=0 (accept owner).
     pub thresh_lo: f32,
@@ -115,96 +119,58 @@ impl SpeakerEmbedder {
         Ok(emb)
     }
 
-    /// Centroid + short/long gallery + leave-one-out slider calibration.
+    /// Up to 5 L2 prototypes from 800 ms windows + leave-one-out max-cosine
+    /// calibration (same rule as live: `max_i cosine(live, proto[i])`).
     ///
-    /// Live CAM++ scores a 220–1200 ms window against **max** cosine of the
-    /// gallery (not only the long centroid). Thresholds follow that same rule.
-    ///
-    /// Window count is bounded: a 15 s take used to schedule hundreds of
-    /// overlapping ONNX runs and freeze (then close) the app.
+    /// A single mixed centroid collapsed laughs / thick / thin speech into a
+    /// vector that scored ~0.05 against any one register.
     pub fn embed_enroll(&mut self, samples_16k: &[f32]) -> Result<EnrollResult, String> {
         let speech = compact_speech(samples_16k, SPEAKER_SR);
         if speech.len() < SPEAKER_SR as usize {
             return Err("pouca fala ativa na gravação para biometria neural".into());
         }
 
-        let long = ((SPEAKER_SR as u64 * 1_500) / 1000) as usize;
         let plan = enroll_windows(speech.len());
-        let mut chunks = Vec::new();
-        let mut shorts = Vec::new();
+        let mut embeddings = Vec::new();
         for (a, b) in plan {
             let end = b.min(speech.len());
             let start = a.min(end);
             if end.saturating_sub(start) < MIN_EMBED_SAMPLES {
                 continue;
             }
-            let Ok(emb) = self.embed(&speech[start..end]) else {
-                continue;
-            };
-            if end - start >= long * 9 / 10 {
-                chunks.push(emb);
-            } else {
-                shorts.push(emb);
+            if let Ok(emb) = self.embed(&speech[start..end]) {
+                embeddings.push(emb);
             }
         }
-        if chunks.is_empty() {
-            if let Some(first) = shorts.first() {
-                chunks.push(first.clone());
-            } else {
-                chunks.push(self.embed(&speech)?);
-            }
-        }
-
-        let mut acc = vec![0.0f32; EMBED_DIM];
-        for emb in &chunks {
-            for (a, b) in acc.iter_mut().zip(emb) {
-                *a += *b;
-            }
-        }
-        let inv = 1.0 / chunks.len() as f32;
-        for a in &mut acc {
-            *a *= inv;
-        }
-        l2_normalize(&mut acc);
-
-        let mut gallery = chunks.clone();
-        gallery.extend(shorts.iter().cloned());
-        if gallery.len() > MAX_GALLERY {
-            let step = gallery.len() as f32 / MAX_GALLERY as f32;
-            gallery = (0..MAX_GALLERY)
-                .map(|i| gallery[(i as f32 * step) as usize].clone())
-                .collect();
+        if embeddings.is_empty() {
+            embeddings.push(self.embed(&speech)?);
         }
 
         let mut scores = Vec::new();
-        if chunks.len() >= 2 {
-            for i in 0..chunks.len() {
-                let mut cent = vec![0.0f32; EMBED_DIM];
-                let mut n = 0u32;
-                for (j, emb) in chunks.iter().enumerate() {
-                    if j == i {
+        if embeddings.len() >= 2 {
+            for i in 0..embeddings.len() {
+                let mut best = -1.0f32;
+                for (j, other) in embeddings.iter().enumerate() {
+                    if i == j {
                         continue;
                     }
-                    for (a, b) in cent.iter_mut().zip(emb) {
-                        *a += *b;
-                    }
-                    n += 1;
+                    best = best.max(cosine(&embeddings[i], other));
                 }
-                let inv = 1.0 / n.max(1) as f32;
-                for a in &mut cent {
-                    *a *= inv;
-                }
-                l2_normalize(&mut cent);
-                scores.push(max_cosine(&chunks[i], &cent, &[]));
+                scores.push(best);
             }
         }
-        for live in &shorts {
-            scores.push(max_cosine(live, &acc, &chunks));
-        }
-
         if scores.is_empty() {
             scores.push(1.0);
         }
+
+        let prototypes = pick_prototypes(&embeddings, MAX_PROTOTYPES);
+        let embed = prototypes[0].clone();
+        let gallery = if prototypes.len() > 1 {
+            prototypes[1..].to_vec()
+        } else {
+            Vec::new()
+        };
+
         scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let self_p05 = percentile(&scores, 0.05);
         let self_p10 = percentile(&scores, 0.10);
@@ -212,7 +178,7 @@ impl SpeakerEmbedder {
         let (thresh_lo, thresh_hi, thresh_reject) = thresh_from_self_scores(self_p05, self_p10, self_median);
 
         Ok(EnrollResult {
-            embed: acc,
+            embed,
             gallery,
             thresh_lo,
             thresh_hi,
@@ -244,15 +210,18 @@ fn evenly_spaced(len: usize, win: usize, max_n: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// CAM++ windows used at enrollment. Count is bounded so a 15 s take cannot
-/// run hundreds of ONNX inferences.
+/// CAM++ windows used at enrollment. Prefer 800 ms slices so each prototype
+/// covers one register (normal / thick / thin / laugh) instead of a 1.5 s mix.
 fn enroll_windows(speech_len: usize) -> Vec<(usize, usize)> {
-    let long = ((SPEAKER_SR as u64 * 1_500) / 1000) as usize;
-    let mut out = evenly_spaced(speech_len, long, 6);
-    if out.is_empty() && speech_len >= MIN_EMBED_SAMPLES {
+    if speech_len < MIN_EMBED_SAMPLES {
+        return Vec::new();
+    }
+    let win800 = ((SPEAKER_SR as u64 * 800) / 1000) as usize;
+    let mut out = evenly_spaced(speech_len, win800, 16);
+    if out.is_empty() {
         return vec![(0, speech_len)];
     }
-    for &(ms, max_n) in &[(220u32, 6usize), (400, 6), (800, 4), (1_200, 4)] {
+    for &(ms, max_n) in &[(400u32, 6usize), (1_200, 4)] {
         let n = ((SPEAKER_SR as u64 * ms as u64) / 1000) as usize;
         for w in evenly_spaced(speech_len, n, max_n) {
             if !out.contains(&w) {
@@ -262,6 +231,38 @@ fn enroll_windows(speech_len: usize) -> Vec<(usize, usize)> {
     }
     out.truncate(MAX_ENROLL_INFER);
     out
+}
+
+/// Farthest-point subset of L2 embeddings (diverse registers, not a mean).
+fn pick_prototypes(embs: &[Vec<f32>], k: usize) -> Vec<Vec<f32>> {
+    if embs.is_empty() {
+        return Vec::new();
+    }
+    let k = k.max(1).min(embs.len());
+    if embs.len() <= k {
+        return embs.to_vec();
+    }
+    let mut chosen = vec![0usize];
+    while chosen.len() < k {
+        let mut best_i = 0usize;
+        let mut best_d = -1.0f32;
+        for (i, emb) in embs.iter().enumerate() {
+            if chosen.contains(&i) {
+                continue;
+            }
+            let mut nearest = 1.0f32;
+            for &c in &chosen {
+                nearest = nearest.min(cosine(emb, &embs[c]));
+            }
+            let dist = 1.0 - nearest;
+            if dist > best_d {
+                best_d = dist;
+                best_i = i;
+            }
+        }
+        chosen.push(best_i);
+    }
+    chosen.into_iter().map(|i| embs[i].clone()).collect()
 }
 
 /// Flatten gallery vectors for JSON / Params (`N×512`).
@@ -483,8 +484,9 @@ fn cached_resampler(from: u32) -> Option<&'static crate::resample::Resampler> {
 
 /// Streaming speech accumulator at an arbitrary sample rate.
 ///
-/// On silence the buffer **freezes** (keeps last utterance) until
-/// `SILENCE_RESET_MS` so short phrases can still be scored after they end.
+/// Holds a **1.2 s ring** of compacted active speech. On silence the buffer
+/// **freezes** (keeps last utterance) until `SILENCE_RESET_MS` so short
+/// phrases can still be scored after they end.
 pub struct SpeechBuffer {
     sr: u32,
     frame: usize,
@@ -685,6 +687,25 @@ mod tests {
     }
 
     #[test]
+    fn pick_prototypes_keeps_diverse_subset() {
+        let mut embs = Vec::new();
+        for axis in 0..8 {
+            let mut v = vec![0.0f32; EMBED_DIM];
+            v[axis] = 1.0;
+            embs.push(v);
+        }
+        let proto = pick_prototypes(&embs, MAX_PROTOTYPES);
+        assert_eq!(proto.len(), MAX_PROTOTYPES);
+        assert_eq!(proto[0][0], 1.0);
+        let axes: Vec<usize> = proto
+            .iter()
+            .map(|p| p.iter().position(|x| *x > 0.5).unwrap())
+            .collect();
+        let unique = axes.iter().copied().collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), MAX_PROTOTYPES, "prototypes must not collapse {axes:?}");
+    }
+
+    #[test]
     fn enroll_windows_15s_is_bounded() {
         let n = enroll_windows(SPEAKER_SR as usize * 15);
         assert!(
@@ -693,7 +714,12 @@ mod tests {
             n.len(),
             MAX_ENROLL_INFER
         );
-        assert!(n.len() >= 8, "need short+long coverage, got {}", n.len());
+        assert!(n.len() >= 8, "need 800 ms coverage, got {}", n.len());
+        let win800 = SPEAKER_SR as usize * 800 / 1000;
+        assert!(
+            n.iter().any(|(a, b)| b.saturating_sub(*a) == win800),
+            "enrollment must include 800 ms windows"
+        );
         let total = SPEAKER_SR as usize * 15;
         for (a, b) in &n {
             assert!(*b > *a);

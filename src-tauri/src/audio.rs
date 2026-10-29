@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use kamovox_ai::{
     max_cosine_flat, to_16k, LoadKey, Models, Realtime, SpeakerEmbedder, SpeechBuffer, Stats, Timing,
-    EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS, LIVE_SPEECH_MS,
+    EMBED_DIM, FIRST_SPEECH_MS, LIVE_PERIOD_MS, LIVE_SCORE_MS,
 };
 use kamovox_dsp::{Params, Processor};
 use kamovox_link::{alive, now_ms, Link};
@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.25-gate-recheck-20261029";
+pub const BUILD_ID: &str = "0.1.26-zero-delay-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -1178,11 +1178,12 @@ fn neural_loop(
         }
     };
     let mut speech = SpeechBuffer::new(sample_rate);
-    let win = ((sample_rate as u64 * LIVE_SPEECH_MS as u64) / 1000) as usize;
+    let win = ((sample_rate as u64 * LIVE_SCORE_MS as u64) / 1000) as usize;
     let mut scratch = vec![0f32; 4096];
     let period = Duration::from_millis(LIVE_PERIOD_MS as u64);
-    let mut last = std::time::Instant::now();
-    let mut scored_utt = 0u64;
+    let mut last = std::time::Instant::now()
+        .checked_sub(period)
+        .unwrap_or_else(std::time::Instant::now);
     while !stop.load(Ordering::Acquire) {
         loop {
             let n = cons.pop_slice(&mut scratch);
@@ -1207,27 +1208,24 @@ fn neural_loop(
         };
         let Some(centroid) = centroid else {
             shared.clear_neural();
-            scored_utt = 0;
             thread::sleep(Duration::from_millis(8));
             continue;
         };
 
-        // First score as soon as ~280 ms of speech exists; then a sliding window
-        // of the last ~1.8 s every LIVE_PERIOD_MS. Never freeze on the first hop.
+        // Sliding ring: score the last ~900 ms every 250 ms. Never freeze on
+        // the first hop of an utterance (`scored_utt` used to block infer_id).
         let can_score = speech.ready_first()
             || (speech.ready_short() && (speech.frozen() || speech.speech_ms() >= FIRST_SPEECH_MS as f32));
         if !can_score {
             thread::sleep(Duration::from_millis(8));
             continue;
         }
-
-        let utt = speech.utterance_id;
-        let due = scored_utt != utt || last.elapsed() >= period;
-        if !due {
+        if last.elapsed() < period {
             thread::sleep(Duration::from_millis(8));
             continue;
         }
 
+        let utt = speech.utterance_id;
         let window = speech.snapshot(win);
         let t0 = std::time::Instant::now();
         shared.neural_busy.store(true, Ordering::Release);
@@ -1235,24 +1233,17 @@ fn neural_loop(
             shared.neural_busy.store(false, Ordering::Release);
             continue;
         }
-        // One sliding window — do not max() a lucky 400 ms tail with the full
-        // phrase (that is how a YouTube clip hit 0.41 and opened Locked).
         let wav = to_16k(&window, sample_rate);
         let best = embedder
             .embed(&wav)
             .ok()
             .map(|live| max_cosine_flat(&live, &centroid, &gallery));
         shared.neural_busy.store(false, Ordering::Release);
+        last = std::time::Instant::now();
         if let Some(score) = best {
             let infer_ms = t0.elapsed().as_secs_f32() * 1000.0;
-            if speech.utterance_id == utt {
-                let infer = shared.publish_neural(score, utt, cfg, infer_ms);
-                scored_utt = utt;
-                last = std::time::Instant::now();
-                dump_biometry_capture(utt, infer, sample_rate, &window, &wav, score, &centroid);
-            }
-        } else {
-            last = std::time::Instant::now();
+            let infer = shared.publish_neural(score, utt, cfg, infer_ms);
+            dump_biometry_capture(utt, infer, sample_rate, &window, &wav, score, &centroid);
         }
     }
     shared.neural_busy.store(false, Ordering::Release);
