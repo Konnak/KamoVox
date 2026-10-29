@@ -64,7 +64,7 @@ pub struct Status {
 }
 
 /// Visible in diagnostics so an old 0.1.16 binary cannot be mistaken for a new build.
-pub const BUILD_ID: &str = "0.1.32-eq-lockfree-20261029";
+pub const BUILD_ID: &str = "0.1.33-slider-release-20261029";
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]

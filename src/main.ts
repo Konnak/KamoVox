@@ -1134,11 +1134,13 @@ function bindSliders() {
       const feel = row.parentElement?.querySelector(`[data-feel="${d.id}"]`);
       if (feel && d.feel) feel.textContent = d.feel(v);
     };
-    const apply = (v: number) => {
+    const preview = (v: number) => {
       const q = quantize(v);
       if (q === d.get()) return;
       d.set(q);
       paint();
+    };
+    const commit = () => {
       if (d.onChange) {
         save();
         d.onChange();
@@ -1148,15 +1150,24 @@ function bindSliders() {
     };
 
     paint();
-    input.addEventListener("input", () => apply(Number(input.value)));
-    out.addEventListener("dblclick", () => apply(d.def));
+    input.addEventListener("input", () => preview(Number(input.value)));
+    input.addEventListener("change", commit);
+    input.addEventListener("pointerup", commit);
+    input.addEventListener("keyup", commit);
+    out.addEventListener("dblclick", () => {
+      preview(d.def);
+      commit();
+    });
 
     $$<HTMLButtonElement>(".stepper button", row).forEach((btn) => {
       const dir = Number(btn.dataset.dir);
       let timer: number | undefined;
-      const stop = () => window.clearTimeout(timer);
+      const stop = () => {
+        window.clearTimeout(timer);
+        commit();
+      };
       const tick = (delay: number) => {
-        apply(d.get() + dir * d.step);
+        preview(d.get() + dir * d.step);
         timer = window.setTimeout(() => tick(Math.max(30, delay * 0.82)), delay);
       };
       btn.addEventListener("pointerdown", (e) => {
